@@ -57,7 +57,16 @@ const validators: Record<string, (value: Record<string, unknown>) => boolean> = 
 		isRecord(value.msg) &&
 		typeof value.msg.text === 'string' &&
 		numbers(value.msg, ['capcode', 'func', 'baud']) &&
-		['alpha', 'tone', 'numeric'].includes(String(value.msg.type)),
+		['alpha', 'tone', 'numeric'].includes(String(value.msg.type)) &&
+		(value.msg.charStatus === undefined || Array.isArray(value.msg.charStatus)),
+	pocsag_status: (value: Record<string, unknown>) =>
+		numbers(value, ['vfoIndex', 'freq']) &&
+		isRecord(value.status) &&
+		typeof value.status.synced === 'boolean' &&
+		typeof value.status.inverted === 'boolean' &&
+		(value.status.baud === null || typeof value.status.baud === 'number') &&
+		(value.status.ber === null || typeof value.status.ber === 'number') &&
+		typeof value.status.codewords === 'number',
 	rds: (value: Record<string, unknown>) => validIndex(value.vfoIndex) && numbers(value, ['freq']) && validRdsMessage(value.msg),
 };
 
@@ -94,7 +103,11 @@ function validVfoParams(value: unknown): boolean {
 		typedFields(value, ['enabled', 'squelchEnabled', 'lowPass', 'highPass', 'pocsag', 'rds'], 'boolean') &&
 		optionalFields(value, ['rtl433', 'audioMuted', 'adsb', 'ais', 'ble', 'acars'], 'boolean') &&
 		optionalFields(value, ['rtl433SampleRate'], 'number') &&
-		optionalFields(value, ['rtl433Protocols'], 'string')
+		optionalFields(value, ['rtl433Protocols'], 'string') &&
+		(value.pocsagCharset === undefined ||
+			(isRecord(value.pocsagCharset) && typedFields(value.pocsagCharset, ['vendor', 'model', 'codepage'], 'string'))) &&
+		(value.pocsagMode === undefined || (typeof value.pocsagMode === 'string' && ['auto', 'alpha', 'numeric'].includes(value.pocsagMode))) &&
+		optionalFields(value, ['pocsagSecondGuess'], 'boolean')
 	);
 }
 function validDspStats(value: unknown): boolean {
