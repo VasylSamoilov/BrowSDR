@@ -25,6 +25,7 @@ import {
 	STREAM_PKT_SIZE,
 	STREAM_HDR_SIZE,
 	NUM_TRANSFERS,
+	MINI_NUM_TRANSFERS,
 	STREAM_START_TIMEOUT_MS,
 	STREAM_STOP_TIMEOUT_MS,
 	MAX_SAMPLE_RATE,
@@ -158,6 +159,11 @@ export class LimeSDR extends LimeSDRClocks {
 		// 8b. Configure RxTSP
 		await this.configureRxTSP();
 
+		// 8b-2. Run LimeSuite's EnableChannel(RX) coherently so the RX datapath
+		// actually produces samples (RXEN_A + EN_RXTSP + AFE/RBB/RFE power), under
+		// the active MAC. Without this the FPGA sample counter stays frozen at 0.
+		await this.enableRxChannel();
+
 		// 8c. Enable TxTSP (needed for clock routing)
 		await this.modifyReg(REG_TXTSP_CFG, 0, 0, 1);
 
@@ -167,12 +173,7 @@ export class LimeSDR extends LimeSDRClocks {
 		// 8d-mini. LimeSDR Mini interface clock chain (LimeSuite LMS7_LimeSDR_mini::SetRate):
 		// set CGEN interface dividers, then the LMS7002 TSP clock dividers that
 		// actually clock sample data onto the DIQ bus to the FPGA.
-		if (this.isMini) {
-			await this.modifyReg(0x0086, 11, 11, 0); // EN_ADCCLKH_CLKGN = 0
-			await this.modifyReg(0x0089, 12, 11, 2); // CLKH_OV_CLKL_CGEN = 2
-			await this.modifyReg(0x00ad, 2, 2, 0); // CDSN_RXALML = 0 (bypass path: !bypass is false here)
-			await this.setInterfaceFrequency(7, 7); // interpolation = decimation = 7 (bypass)
-		}
+		if (this.isMini) await this.applyMiniInterfaceClocks();
 
 		// 8e. Configure FPGA
 		await this.configureFPGA();
@@ -332,15 +333,77 @@ export class LimeSDR extends LimeSDRClocks {
 			await this.configureRxTSP();
 			await this.configureLML();
 			await this.configureFPGAPLL();
+			// configureRxTSP/configureLML above rewrite RXTSP_DEC and the LML clock
+			// muxes to their decimation defaults, which wipes the Mini's DIQ-clock
+			// routing set at init. Re-apply it or the FPGA stops getting sample data
+			// (EP3 stream goes silent) after any post-init rate change.
+			if (this.isMini) await this.applyMiniInterfaceClocks();
 		} finally {
 			await this.modifyReg(REG_RESET, 1, 0, this.rxChannel + 1);
 		}
 	}
 
+	/** Faithful port of LimeSuite LMS7002M::EnableChannel(isTx=false, enable=true)
+	 *  for RX channel A. Powers the full RX datapath coherently so samples flow onto
+	 *  the DIQ bus (frozen FPGA sample counter means this did not run). Bit refs are
+	 *  from LMS7002M_parameters.h. */
+	private async enableRxChannel(): Promise<void> {
+		// LML: RXEN_A = 1 (0x0020[4]) under active MAC
+		await this.modifyReg(0x0020, 4, 4, 1);
+		// ADC/AFE: EN_DIR_AFE=1 (0x0081[0]); PD_RX_AFE1=0 (0x0082[4]); EN_G_AFE=1, PD_AFE=0
+		await this.modifyReg(0x0081, 0, 0, 1);
+		await this.modifyReg(0x0082, 4, 4, 0); // PD_RX_AFE1 = 0 (power up ADC ch1)
+		await this.modifyReg(0x0082, 6, 6, 1); // EN_G_AFE = 1 (0x0082[6])
+		await this.modifyReg(0x0082, 14, 14, 0); // PD_AFE = 0 (0x0082[14])
+		// Digital RxTSP: EN_RXTSP=1 (0x0400[0]); DC_BYP_RXTSP=0, DCLOOP_STOP=0 (0x040C);
+		// AGC bypass; GFIR1/2/3 bypass
+		await this.modifyReg(0x0400, 0, 0, 1); // EN_RXTSP = 1
+		await this.modifyReg(0x040c, 2, 2, 0); // DC_BYP_RXTSP = 0 (DC corrector active)
+		await this.modifyReg(0x040c, 8, 8, 0); // DCLOOP_STOP = 0
+		await this.modifyReg(0x040c, 6, 6, 1); // AGC_BYP_RXTSP = 1
+		await this.modifyReg(0x040c, 5, 3, 7); // GFIR3/2/1_BYP = 1
+		// RBB baseband: EN_DIR_RBB=1 (0x0115[0]-mem); EN_G_RBB=1; PD_PGA_RBB=0; PD_LPFL_RBB=0
+		await this.modifyReg(0x0115, 0, 0, 1); // EN_DIR_RBB
+		await this.modifyReg(REG_RBB_EN, 0, 0, 1); // EN_G_RBB = 1 (0x0115[0] group)
+		await this.modifyReg(0x0115, 2, 2, 0); // PD_PGA_RBB = 0
+		await this.modifyReg(0x0115, 1, 1, 0); // PD_LPFL_RBB = 0
+		// RFE frontend: EN_DIR_RFE=1; EN_G_RFE=1; PD_MXLOBUF/QGEN/TIA/LNA = 0
+		await this.modifyReg(0x010d, 0, 0, 1); // EN_DIR_RFE (0x010D[0])
+		await this.modifyReg(REG_RFE_EN, 0, 0, 1); // EN_G_RFE = 1 (0x010C[0])
+		await this.modifyReg(REG_RFE_EN, 7, 7, 0); // PD_LNA_RFE = 0
+		await this.modifyReg(REG_RFE_EN, 1, 1, 0); // PD_TIA_RFE = 0
+		await this.modifyReg(REG_RFE_EN, 4, 4, 0); // PD_MXLOBUF_RFE = 0
+		await this.modifyReg(REG_RFE_EN, 3, 3, 0); // PD_QGEN_RFE = 0
+		console.log('LimeSDR: RX channel A enabled (EnableChannel port)');
+	}
+
+	/** LimeSDR Mini DIQ interface clock chain (LimeSuite LMS7_LimeSDR_mini::SetRate):
+	 *  CGEN interface dividers + the LMS7002 TSP clock dividers that clock sample
+	 *  data onto the DIQ bus to the FPGA. Must run after init AND after any
+	 *  sample-rate reconfigure, which otherwise resets RXTSP_DEC to 0. */
+	private async applyMiniInterfaceClocks(): Promise<void> {
+		await this.modifyReg(0x0086, 11, 11, 0); // EN_ADCCLKH_CLKGN = 0
+		await this.modifyReg(0x0089, 12, 11, 2); // CLKH_OV_CLKL_CGEN = 2
+		await this.modifyReg(0x00ad, 2, 2, 0); // CDSN_RXALML = 0 (bypass path)
+		await this.setInterfaceFrequency(7, 7); // interpolation = decimation = 7 (bypass)
+	}
+
 	// ── Streaming ───────────────────────────────────────────────
 
 	async startStreaming(callback: (data: ArrayBufferView) => void, usbOnly = false): Promise<void> {
-		if (this.rxRunning) return;
+		if (this.rxRunning || this.rxStarting) return;
+		// Latch synchronously: rxRunning is not assigned until several awaits below,
+		// so without this a second startStreaming() call during those awaits would
+		// pass the guard and race the first, tearing down its freshly-posted reads.
+		this.rxStarting = true;
+		try {
+			await this.startStreamingInner(callback, usbOnly);
+		} finally {
+			this.rxStarting = false;
+		}
+	}
+
+	private async startStreamingInner(callback: (data: ArrayBufferView) => void, usbOnly = false): Promise<void> {
 		this.miniTransferLogged = false;
 		this.rxLevel.reset();
 		const packed = this.packed;
@@ -361,7 +424,7 @@ export class LimeSDR extends LimeSDRClocks {
 		else await this.enableFpgaStreaming();
 
 		console.log(
-			`LimeSDR: RX enabled; waiting for USB samples (${NUM_TRANSFERS} transfers, ${transferSize} bytes each, ${packed ? 12 : 16}-bit link)`,
+			`LimeSDR: RX enabled; waiting for USB samples (${this.isMini ? MINI_NUM_TRANSFERS : NUM_TRANSFERS} transfers, ${transferSize} bytes each, ${packed ? 12 : 16}-bit link)`,
 		);
 
 		let firstPacketLogged = false;
@@ -442,7 +505,8 @@ export class LimeSDR extends LimeSDRClocks {
 			await pending.catch(() => {});
 		};
 
-		for (let index = 0; index < NUM_TRANSFERS; index++) transfers.push(transfer());
+		const numTransfers = this.isMini ? MINI_NUM_TRANSFERS : NUM_TRANSFERS;
+		for (let index = 0; index < numTransfers; index++) transfers.push(transfer());
 
 		// Mini: reads are posted; yield so each transferIn is submitted to the
 		// FT601, THEN assert RX_EN so the FPGA clocks into a pipe with pending reads.
@@ -548,8 +612,10 @@ export class LimeSDR extends LimeSDRClocks {
 		await this.writeFPGA(FPGA_REG_TSTAMP, reg9 | 0x03);
 		await this.writeFPGA(FPGA_REG_TSTAMP, reg9 & ~0x03);
 
-		// 4. Reset USB streaming FIFOs (0x00 = stream buffer reset)
-		await this.resetStreamBuffers();
+		// 4. Reset USB streaming FIFOs (0x00 = stream buffer reset).
+		// The proven usdr WebUSB driver's setup_stream OMITS this (// TODO: ResetStreamBuffers);
+		// the Mini firmware also rejects the USB FIFO-reset command. Skip on the Mini.
+		if (!this.isMini) await this.resetStreamBuffers();
 
 		// 5. Configure interface mode per LimeSuite Streamer.cpp logic.
 		// Mini: SISO-DDR (0x0040, LML1_SISODDR=1 per SetRate). USB: MIMO (0x0100).
@@ -577,7 +643,9 @@ export class LimeSDR extends LimeSDRClocks {
 		await this.writeFPGA(FPGA_REG_TSTAMP, reg9 | (5 << 1));
 		await this.writeFPGA(FPGA_REG_TSTAMP, reg9 & ~(5 << 1));
 
-		await this.resetLogicRegisters();
+		// usdr setup_stream leaves ResetLogicRegisters commented out (// if (!align)),
+		// so skip it on the Mini — it is the other op that diverges from the proven path.
+		if (!this.isMini) await this.resetLogicRegisters();
 		await this.dumpRegisters();
 	}
 }

@@ -53,6 +53,11 @@ export const MINI_TRANSFER_SIZE = STREAM_PKT_SIZE; // LimeSDR Mini / FT601: one 
 export const STREAM_HDR_SIZE = 16; // Packet header bytes
 export const STREAM_PAYLOAD = STREAM_PKT_SIZE - STREAM_HDR_SIZE; // 4080 bytes of IQ data
 export const NUM_TRANSFERS = 16; // ~34ms queued coverage at 61.44 MSPS; matches LimeSuite's FX3 context count
+// LimeSDR Mini / FT601: the FT601 245-FIFO only advances while host IN requests are
+// pending, so a shallow queue starves it. The proven usdr/websdr WebUSB driver keeps
+// up to 256 reads continuously outstanding (MAX_IN_STREAM) and refills on each
+// completion. Match that depth with a Mini-specific count.
+export const MINI_NUM_TRANSFERS = 256;
 export const STREAM_START_TIMEOUT_MS = 3000;
 export const STREAM_STOP_TIMEOUT_MS = 1000;
 export const MAX_SAMPLE_RATE = 61.44e6;

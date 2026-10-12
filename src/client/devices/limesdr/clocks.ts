@@ -409,8 +409,58 @@ export abstract class LimeSDRClocks extends LimeSDRTransport {
 			const board = await this.readFPGA(0x0000);
 			const version = ((await this.readFPGA(0x0001)) << 8) | (await this.readFPGA(0x0002));
 			if (board === 0x000e && version > 0x020e) await this.alignRXClock(pllInputFreq, pllOutputFreq);
+			// LimeSDR Mini (board 0x0011): LimeSuite FPGA_Mini runs the phase search
+			// unconditionally at >=5 MHz — without it the FPGA never captures the DIQ bus.
+			else if (this.isMini) await this.alignRXClockMini(pllInputFreq, pllOutputFreq);
 		}
 		await this.resetLogicRegisters();
+	}
+
+	/** LimeSDR Mini RX interface phase search — ports LimeSuite FPGA_Mini::SetInterfaceFreq
+	 *  (findPhase path). The Mini needs the FPGA data-capture PLL phase aligned to the
+	 *  LMS7002 DIQ bus, or the FPGA captures nothing and the stream FIFO never fills.
+	 *  Uses the Mini's exact register set (single bank; no B-channel like LimeSDR-USB). */
+	protected async alignRXClockMini(inputFreq: number, outputFreq: number): Promise<void> {
+		// Back up the first 8 (spiAddr.size()-4 in LimeSuite); the rest are write-only setup.
+		const backupAddrs = [0x0021, 0x0022, 0x0023, 0x0024, 0x0027, 0x002a, 0x0400, 0x040c];
+		const backup: Array<[number, number]> = [];
+		const originalReset = await this.readLMS7002(REG_RESET);
+		try {
+			await this.writeLMS7002(REG_RESET, 0xfffd);
+			for (const address of backupAddrs) backup.push([address, await this.readLMS7002(address)]);
+			// LimeSuite FPGA_Mini::SetInterfaceFreq Config-Rx spiData, in order.
+			await this.writeLMS7002Batch([
+				[0x0021, 0x0e9f],
+				[0x0022, 0x07ff],
+				[0x0023, 0x5550],
+				[0x0024, 0xe4e4],
+				[0x0027, 0xe4e4],
+				[0x002a, 0x0086],
+				[0x0400, 0x028d],
+				[0x040c, 0x00ff],
+				[0x040b, 0x5555],
+				[0x0400, 0x02cd],
+				[0x040b, 0xaaaa],
+				[0x0400, 0x02ed],
+			]);
+			// LimeSuite calls SetPllFrequency(pllIndex=0, ...) with clocks[].index=3:
+			// pllIndex is 0, and the clock-OUTPUT index 3 is what feeds cnt_ind in the
+			// phase step. We previously passed 3 as the pllIndex — configuring the wrong
+			// PLL — so the phase engine never completed. Use PLL 0, clock index 3.
+			try {
+				await this.programFPGAPLL(0, inputFreq, [outputFreq, outputFreq, outputFreq, outputFreq], [], true, 3);
+				console.log('LimeSDR Mini: RX interface phase search locked');
+			} catch (e) {
+				console.warn(`LimeSDR Mini: phase search did not lock (${e instanceof Error ? e.message : String(e)}); using deterministic phase`);
+			}
+		} finally {
+			await this.writeLMS7002(REG_RESET, 0xfffd);
+			await this.writeLMS7002Batch(backup);
+			await this.writeLMS7002(REG_RESET, originalReset);
+			// LimeSuite FPGA_Mini::SetInterfaceFreq clears FPGA CTRL after the search
+			// so the subsequent StartStreaming asserts RX_EN on a clean 0x000A.
+			await this.writeFPGA(0x000a, 0x0000);
+		}
 	}
 
 	protected async alignRXClock(inputFreq: number, outputFreq: number): Promise<void> {
@@ -459,6 +509,7 @@ export abstract class LimeSDRClocks extends LimeSDRTransport {
 		clockFreqs: number[],
 		clockPhases: number[] = [],
 		findPhase = false,
+		phaseClockIndex?: number,
 	): Promise<void> {
 		if (inputFreq < 5e6) {
 			const directClk = await this.readFPGA(FPGA_REG_DIRECT_CLK);
@@ -526,31 +577,20 @@ export abstract class LimeSDRClocks extends LimeSDRTransport {
 		await this.writeFPGA(FPGA_REG_C_ODD0, c7c0Byp);
 		await this.writeFPGA(0x0028, 0x5555); // C[15:8] all bypassed
 
-		// Start PLL configuration
+		if (findPhase) {
+			// LimeSuite SetPllFrequency: for the phase search, PLLCFG_START is set
+			// together with the counter config and is NOT pulsed off — the phase
+			// engine runs against the just-latched PLL config. Pulsing START off here
+			// (as the normal path does) resets that state and the done bit never sets.
+			await this.writeFPGA(PLL_WRITE_ADDR, reg23val | 0x01);
+			await this.runPhaseSearch(reg23val | 0x01, phaseClockIndex ?? pllIndex, Math.round(Fvco / clockFreqs[1]));
+			return;
+		}
+
+		// Start PLL configuration (normal, non-search path: pulse START on then off)
 		await this.writeFPGA(PLL_WRITE_ADDR, reg23val | 0x01);
 		await delay(20);
 		await this.writeFPGA(PLL_WRITE_ADDR, reg23val & ~0x01);
-		if (findPhase) {
-			const divider = Math.round(Fvco / clockFreqs[1]);
-			const phaseControl = (reg23val & ~0x4707) | 0x6300;
-			await this.writeFPGA(PLL_WRITE_ADDR, phaseControl);
-			await this.writeFPGA(0x0024, 8 * divider - 1);
-			await this.writeFPGA(PLL_WRITE_ADDR, phaseControl | 0x02);
-			try {
-				const deadline = Date.now() + 3000;
-				while (Date.now() < deadline) {
-					const status = await this.readFPGA(0x0021);
-					if (status & 0x04) {
-						if (status & 0x08) throw new Error('LimeSDR: RX interface phase search failed');
-						return;
-					}
-					await delay(10);
-				}
-				throw new Error('LimeSDR: RX interface phase search timed out');
-			} finally {
-				await this.writeFPGA(PLL_WRITE_ADDR, phaseControl & ~0x02);
-			}
-		}
 
 		// Phase shifts for clock outputs
 		for (let i = 0; i < clockPhases.length; i++) {
@@ -576,6 +616,38 @@ export abstract class LimeSDRClocks extends LimeSDRTransport {
 		}
 
 		console.log(`LimeSDR: FPGA PLL ${pllIndex} configured (M=${bestM}, VCO=${(Fvco / 1e6).toFixed(0)} MHz)`);
+	}
+
+	/** FPGA PLL hardware phase search (LimeSuite SetPllFrequency findPhase path).
+	 *  CNT_IND=(index+2)&0x1F in reg 0x0023 [11:8], with PHCFG_UPDN(1<<13) and
+	 *  PHCFG_MODE(1<<14); CNT_PHASE(0x0024)=8*C-0.5. Polls busy reg 0x0021 for done
+	 *  (bit2) / error (bit3). Throws on timeout/error; callers decide fallback. */
+	protected async runPhaseSearch(reg23val: number, clockIndex: number, divider: number): Promise<void> {
+		const PLL_WRITE_ADDR = 0x0023;
+		const nSteps = Math.abs(Math.round(8 * divider - 0.5));
+		const cntInd = (clockIndex + 2) & 0x1f;
+		let phaseControl = reg23val & ~0x01; // clear PLLCFG_START
+		phaseControl &= ~(0xf << 8); // clear CNT_IND
+		phaseControl |= cntInd << 8;
+		phaseControl |= 1 << 13; // PHCFG_UPDN
+		phaseControl |= 1 << 14; // PHCFG_MODE
+		await this.writeFPGA(PLL_WRITE_ADDR, phaseControl);
+		await this.writeFPGA(0x0024, nSteps);
+		await this.writeFPGA(PLL_WRITE_ADDR, phaseControl | 0x02); // PHCFG_START
+		try {
+			const deadline = Date.now() + 1000;
+			while (Date.now() < deadline) {
+				const status = await this.readFPGA(0x0021);
+				if (status & 0x04) {
+					if (status & 0x08) throw new Error('LimeSDR: RX interface phase search failed');
+					return;
+				}
+				await delay(10);
+			}
+			throw new Error('LimeSDR: RX interface phase search timed out');
+		} finally {
+			await this.writeFPGA(PLL_WRITE_ADDR, phaseControl & ~0x02);
+		}
 	}
 }
 

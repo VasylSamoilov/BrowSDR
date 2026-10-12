@@ -83,18 +83,73 @@ const hex = (n: number): string => '0x' + n.toString(16).padStart(4, '0');
  */
 export async function ft601ClaimAll(dev: USBDevice): Promise<void> {
 	await dev.open();
+
+	// Analog of LimeSuite's libusb_reset_device() in ConnectionFT601::Open(): it
+	// re-initializes the FT601's 245-FIFO engine; without it the stream pipe can
+	// arm yet never deliver. We reset on the opened-but-unclaimed device (WinUSB
+	// and libusb both reject reset while an interface is claimed), then re-select
+	// the configuration it clears. Non-standard WebUSB API — a failure is non-fatal
+	// but logged distinctly so we can tell "reset ran" from "reset refused".
+	if (typeof dev.reset === 'function') {
+		try {
+			await dev.reset();
+			console.log('LimeSDR Mini: device.reset() OK (FT601 FIFO engine reinitialized)');
+		} catch (error) {
+			console.warn('LimeSDR Mini: device.reset() REFUSED — FT601 FIFO not reinitialized:', error instanceof Error ? error.message : String(error));
+		}
+	} else {
+		console.warn('LimeSDR Mini: device.reset() not available in this browser');
+	}
+
 	if (!dev.configuration) await dev.selectConfiguration(1);
 	const cfg = dev.configuration;
 	if (!cfg) throw new Error('LimeSDR Mini: no USB configuration available');
+
+	const claimed: number[] = [];
 	for (const iface of cfg.interfaces) {
 		try {
 			await dev.claimInterface(iface.interfaceNumber);
+			claimed.push(iface.interfaceNumber);
 		} catch (error) {
-			// Interface 0 may be the only WinUSB-bound one; report but keep going
-			// so a partial claim still lets the probe report what IS reachable.
+			// A per-interface claim failure usually means only SOME interfaces were
+			// bound to WinUSB by Zadig. Record and keep going so we can report
+			// precisely which one is missing rather than failing blind.
 			console.warn(`LimeSDR Mini: could not claim interface ${iface.interfaceNumber}:`, error);
 		}
 	}
+
+	// The IQ stream endpoint (0x83 → endpoint number 3) lives on a data interface.
+	// Find which interface exposes it and require that one to be claimed; if it is
+	// not, WinUSB is bound to the wrong/too-few interfaces (common Zadig mistake:
+	// binding only Interface 0). Fail now with an actionable message instead of
+	// letting the stream time out 3 s later with no explanation.
+	const dataIfaceNum = findStreamInterface(cfg);
+	if (dataIfaceNum !== null && !claimed.includes(dataIfaceNum)) {
+		throw new Error(
+			`LimeSDR Mini: the IQ-stream interface (${dataIfaceNum}) is not claimable. The FT601 is a composite device; ` +
+				'WinUSB must be bound to BOTH interfaces. In Zadig, enable Options → List All Devices, then install ' +
+				'WinUSB on each "LimeSDR Mini (Interface 0)" and "(Interface 1)" entry, replug, and reconnect.',
+		);
+	}
+	if (claimed.length === 0) {
+		throw new Error(
+			'LimeSDR Mini: no USB interface could be claimed. Install the WinUSB driver with Zadig (both interfaces) and replug.',
+		);
+	}
+	console.log(`LimeSDR Mini: claimed interfaces [${claimed.join(', ')}], stream interface=${dataIfaceNum ?? 'unknown'}`);
+}
+
+/** Find the interface number whose default alt-setting exposes the FT601 IQ-stream
+ *  input endpoint (address 0x83 → endpointNumber 3, direction 'in'). Returns null
+ *  if no interface advertises it (unexpected descriptor). */
+function findStreamInterface(cfg: USBConfiguration): number | null {
+	const streamEpNum = FT601_STREAM_RD & 0x0f; // 0x83 → 3
+	for (const iface of cfg.interfaces) {
+		for (const ep of iface.alternate.endpoints) {
+			if (ep.direction === 'in' && ep.endpointNumber === streamEpNum) return iface.interfaceNumber;
+		}
+	}
+	return null;
 }
 
 /**

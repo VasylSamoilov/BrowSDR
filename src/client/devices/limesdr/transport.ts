@@ -57,6 +57,9 @@ export abstract class LimeSDRTransport {
 	protected dev!: USBDevice;
 	protected commandQueue: Promise<void> = Promise.resolve();
 	protected rxRunning: Array<Promise<void>> | null = null;
+	/** Synchronous latch: true between startStreaming() entry and rxRunning being
+	 *  assigned, so a re-entrant call during setup awaits cannot race the first. */
+	protected rxStarting = false;
 	protected regCache = new Map<number, number>();
 	protected currentSampleRate = 10e6;
 	protected currentFrequency = 100e6;
@@ -132,9 +135,9 @@ export abstract class LimeSDRTransport {
 
 		try {
 			// Arm both control pipes to 64 bytes (the LMS64C packet size).
-			// NB: unlike LimeSuite we cannot libusb_reset_device() first, so we
-			// do NOT flush the control-read pipe here — flushing shifts the
-			// FT601 pipe-counter state and the first GET_INFO then stalls.
+			// ft601ClaimAll has already issued device.reset() (the
+			// libusb_reset_device analog), so FT601 pipe-counter state is clean;
+			// we still skip a control-read flush here (GET_INFO round-trips without it).
 			this.ft601Counter = await ft601SetPipe(this.dev, this.ft601Counter, FT601_CTRL_RD, 64);
 			this.ft601Counter = await ft601SetPipe(this.dev, this.ft601Counter, FT601_CTRL_WR, 64);
 		} catch (error) {
