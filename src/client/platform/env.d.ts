@@ -54,6 +54,8 @@ interface USBDevice {
 	controlTransferOut(setup: USBControlTransferParameters, data?: BufferSource): Promise<USBOutTransferResult>;
 	transferIn(endpointNumber: number, length: number): Promise<USBInTransferResult>;
 	transferOut(endpointNumber: number, data: BufferSource): Promise<USBOutTransferResult>;
+	clearHalt(direction: 'in' | 'out', endpointNumber: number): Promise<void>;
+	reset(): Promise<void>;
 	configuration: USBConfiguration | null;
 	vendorId: number;
 	productId: number;

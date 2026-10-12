@@ -20,7 +20,6 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 */
 
 import {
-	REF_CLK,
 	CGEN_VCO_MIN,
 	CGEN_VCO_MAX,
 	SX_VCO_MIN,
@@ -83,7 +82,7 @@ export abstract class LimeSDRClocks extends LimeSDRTransport {
 			throw new Error(`CGEN: VCO freq ${(vcoFreq / 1e6).toFixed(1)} MHz out of range`);
 		}
 
-		const ratio = vcoFreq / REF_CLK;
+		const ratio = vcoFreq / this.refClk;
 		const gINT = Math.floor(ratio) - 1;
 		const gFRAC = Math.round((ratio - gINT - 1) * (1 << 20)) & 0xfffff;
 
@@ -103,6 +102,58 @@ export abstract class LimeSDRClocks extends LimeSDRTransport {
 			console.log(`LimeSDR: CGEN locked, VCO=${(vcoFreq / 1e6).toFixed(1)} MHz, DIV=${iHdiv}, INT=${gINT}, FRAC=${gFRAC}`);
 		} else {
 			throw new Error('LimeSDR: CGEN VCO failed to lock');
+		}
+	}
+
+	/**
+	 * Port of LMS7002M::SetInterfaceFrequency for the bypass path
+	 * (interpolation == decimation == 7), which is what the LimeSDR Mini's
+	 * SetRate uses. Configures the TSP clock dividers and RX FIFO clock muxes
+	 * so the LMS7002M actually drives sample data onto the DIQ bus to the FPGA.
+	 * Without this the FPGA capture clock is aligned but no samples are clocked
+	 * out, so the stream FIFO never fills (EP3 stays silent).
+	 *
+	 * Register map (LMS7002M_parameters):
+	 *   0x002A: RX_MUX[11:10], RXRDCLK_MUX[3:2], RXWRCLK_MUX[1:0]
+	 *   0x002B: MCLK2SRC[5:4], MCLK1SRC[3:2], TXDIVEN[1], RXDIVEN[0]
+	 *   0x002C: TXTSPCLKA_DIV[15:8], RXTSPCLKA_DIV[7:0]
+	 *   0x0403: HBD_OVR_RXTSP[14:12]  0x0203: HBI_OVR_TXTSP[14:12]
+	 */
+	protected async setInterfaceFrequency(interpolation: number, decimation: number): Promise<void> {
+		await this.modifyReg(0x0403, 14, 12, decimation); // HBD_OVR_RXTSP
+		await this.modifyReg(0x0203, 14, 12, interpolation); // HBI_OVR_TXTSP
+
+		const lml2Siso = getBits(await this.readLMS7002(0x0022), 14, 14); // LML2_SISODDR
+		const mclk2src = getBits(await this.readLMS7002(0x002b), 5, 4);
+		if (decimation === 7 || (decimation === 0 && lml2Siso === 0)) {
+			await this.modifyReg(0x002c, 7, 0, 0); // RXTSPCLKA_DIV = 0
+			await this.modifyReg(0x002b, 0, 0, 0); // RXDIVEN = 0
+			await this.modifyReg(0x002b, 5, 4, (mclk2src & 1) | 0x2); // MCLK2SRC
+		} else {
+			const divider = Math.pow(2, decimation + lml2Siso);
+			await this.modifyReg(0x002c, 7, 0, divider > 1 ? divider / 2 - 1 : 0);
+			await this.modifyReg(0x002b, 0, 0, 1);
+			await this.modifyReg(0x002b, 5, 4, mclk2src & 1);
+		}
+
+		const rxMux = getBits(await this.readLMS7002(0x002a), 11, 10);
+		if (rxMux === 0) {
+			const mimoBypass = decimation === 7 && lml2Siso === 0;
+			await this.modifyReg(0x002a, 3, 2, mimoBypass ? 3 : 1); // RXRDCLK_MUX
+			await this.modifyReg(0x002a, 1, 0, mimoBypass ? 1 : 2); // RXWRCLK_MUX
+		}
+
+		const lml1Siso = getBits(await this.readLMS7002(0x0022), 12, 12); // LML1_SISODDR
+		const mclk1src = getBits(await this.readLMS7002(0x002b), 3, 2);
+		if (interpolation === 7 || (interpolation === 0 && lml1Siso === 0)) {
+			await this.modifyReg(0x002c, 15, 8, 0); // TXTSPCLKA_DIV = 0
+			await this.modifyReg(0x002b, 1, 1, 0); // TXDIVEN = 0
+			await this.modifyReg(0x002b, 3, 2, (mclk1src & 1) | 0x2); // MCLK1SRC
+		} else {
+			const divider = Math.pow(2, interpolation + lml1Siso);
+			await this.modifyReg(0x002c, 15, 8, divider > 1 ? divider / 2 - 1 : 0);
+			await this.modifyReg(0x002b, 1, 1, 1);
+			await this.modifyReg(0x002b, 3, 2, mclk1src & 1);
 		}
 	}
 
@@ -135,7 +186,7 @@ export abstract class LimeSDRClocks extends LimeSDRTransport {
 		// Calculate PLL values
 		const en_div2 = vcoFreq > SX_DIV2_THRESHOLD ? 1 : 0;
 		const divisor = en_div2 ? 2 : 1;
-		const ratio = vcoFreq / (REF_CLK * divisor);
+		const ratio = vcoFreq / (this.refClk * divisor);
 		const intPart = Math.floor(ratio) - 4;
 		const fracPart = Math.round((ratio - intPart - 4) * (1 << 20)) & 0xfffff;
 
@@ -203,7 +254,7 @@ export abstract class LimeSDRClocks extends LimeSDRTransport {
 		const rbEnDiv2 = getBits(await this.readLMS7002(REG_SX_CFG), 10, 10);
 		const rbFrac = (rbFracH << 16) | rbFracL;
 		const rbDivisor = rbEnDiv2 ? 2 : 1;
-		const rbVCO = (rbInt + 4 + rbFrac / (1 << 20)) * REF_CLK * rbDivisor;
+		const rbVCO = (rbInt + 4 + rbFrac / (1 << 20)) * this.refClk * rbDivisor;
 		const rbFreq = rbVCO / (1 << (rbDiv + 1));
 		console.log(
 			`LimeSDR: SXR locked at ${(freq_Hz / 1e6).toFixed(3)} MHz, actual=${(rbFreq / 1e6).toFixed(3)} MHz, VCO=${bestVCO}, CSW=${bestCSW}, div_loch=${div_loch}, INT=${rbInt}, FRAC=${rbFrac}, DIV=${rbDiv}, EN_DIV2=${rbEnDiv2}`,
@@ -304,7 +355,9 @@ export abstract class LimeSDRClocks extends LimeSDRTransport {
 		// 0x0021: Pad pull-ups and SPI mode (4-wire)
 		await this.writeLMS7002(0x0021, 0x0e9f);
 
-		await this.writeLMS7002(0x0022, 0x0fff);
+		// 0x0022: DIQ pad config. Mini also needs LML1_SISODDR (bit 12) and LML2_SISODDR (bit 14)
+		// set so Streamer selects SISO-DDR FPGA mode (0x0040). SetRate() in LimeSuite does this.
+		await this.writeLMS7002(0x0022, this.isMini ? 0x5fff : 0x0fff);
 
 		// 0x0023: LML direction/mode/routing (LimeSuite Init default)
 		await this.writeLMS7002(REG_LML_CONF1, 0x5550);
@@ -331,7 +384,8 @@ export abstract class LimeSDRClocks extends LimeSDRTransport {
 		// Stop any existing streaming
 		await this.writeFPGA(FPGA_REG_CTRL, 0x0000);
 
-		await this.writeFPGA(FPGA_REG_IFACE, 0x0100);
+		// Mini: SISO-DDR mode (0x0040, LML1_SISODDR=1); USB: MIMO mode (0x0100).
+		await this.writeFPGA(FPGA_REG_IFACE, this.isMini ? 0x0040 : 0x0100);
 
 		await this.writeFPGA(FPGA_REG_CH_EN, 1 << this.rxChannel);
 

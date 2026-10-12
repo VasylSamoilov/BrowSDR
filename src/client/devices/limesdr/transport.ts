@@ -31,10 +31,26 @@ import {
 	LimeSDRCommandError,
 	EP_CTRL_OUT,
 	EP_CTRL_IN_NUM,
+	EP_STREAM_IN_NUM,
+	FT601_STREAM_IN_NUM,
+	REF_CLK,
+	REF_CLK_MINI,
 	REG_RESET,
+	STREAM_PKT_SIZE,
 	setBits,
 } from './protocol';
 import type { SdrDeviceInfo } from '@/radio/types';
+import {
+	ft601ClaimAll,
+	describeUsbTree,
+	ft601SetPipe,
+	ft601ResetStreamPipe,
+	ft601ControlWrite,
+	ft601ControlRead,
+	FT601_CTRL_RD,
+	FT601_CTRL_WR,
+	FT601_STREAM_RD,
+} from './ft601';
 
 export abstract class LimeSDRTransport {
 	abstract close(): Promise<void>;
@@ -46,10 +62,29 @@ export abstract class LimeSDRTransport {
 	protected currentFrequency = 100e6;
 	protected rxChannel = 0;
 
+	// FT601 (LimeSDR Mini) transport flags — set by openFt601()
+	protected isMini = false;
+	protected refClk = REF_CLK; // overridden to REF_CLK_MINI for the Mini
+	protected ft601Counter = 0; // monotonic pipe-control session counter
+
+	/** Endpoint number used for IQ stream reads: EP1 (FX3) or EP3 (FT601). */
+	protected get streamEndpointNumber(): number {
+		return this.isMini ? FT601_STREAM_IN_NUM : EP_STREAM_IN_NUM;
+	}
+
 	// ── USB Communication ───────────────────────────────────────
 
 	async open(device: USBDevice): Promise<void> {
 		this.dev = device;
+
+		// LimeSDR Mini (FTDI FT601, pid 0x601f) speaks a different USB transport
+		// than the FX3-based LimeSDR-USB. Open the FT601 path and return; all
+		// subsequent commands will route through it via sendCommand().
+		if (device.productId === 0x601f) {
+			await this.openFt601();
+			return;
+		}
+
 		try {
 			await this.dev.open();
 			await this.dev.selectConfiguration(1);
@@ -77,6 +112,80 @@ export abstract class LimeSDRTransport {
 		}
 	}
 
+	/**
+	 * Open a LimeSDR Mini (FT601 USB bridge). Sets board flags, claims both
+	 * composite interfaces, and arms the 64-byte control pipes so that
+	 * sendCommand() can use them immediately.
+	 *
+	 * The FT601 side-band pipe-control protocol (20-byte words on EP 0x01)
+	 * must be run before any bulk transfer on a pipe; the counter must be
+	 * monotonically increasing within the USB session.
+	 */
+	private async openFt601(): Promise<void> {
+		this.isMini = true;
+		this.refClk = REF_CLK_MINI;
+		this.ft601Counter = 0;
+
+		console.log('LimeSDR Mini: FT601 opening...');
+		await ft601ClaimAll(this.dev);
+		describeUsbTree(this.dev);
+
+		try {
+			// Arm both control pipes to 64 bytes (the LMS64C packet size).
+			// NB: unlike LimeSuite we cannot libusb_reset_device() first, so we
+			// do NOT flush the control-read pipe here — flushing shifts the
+			// FT601 pipe-counter state and the first GET_INFO then stalls.
+			this.ft601Counter = await ft601SetPipe(this.dev, this.ft601Counter, FT601_CTRL_RD, 64);
+			this.ft601Counter = await ft601SetPipe(this.dev, this.ft601Counter, FT601_CTRL_WR, 64);
+		} catch (error) {
+			throw new Error(
+				'LimeSDR Mini: FT601 control pipe setup failed. The data endpoints may be on an interface not bound ' +
+					'to WinUSB. Underlying error: ' +
+					errorMessage(error),
+				{ cause: error },
+			);
+		}
+
+		console.log('LimeSDR Mini: FT601 control pipes armed (counter=' + this.ft601Counter + ')');
+	}
+
+	/**
+	 * Re-open interfaces and re-arm pipes after a USB close/reopen cycle
+	 * (timeout recovery path in stopStreaming). Stream pipes are re-armed
+	 * by the next startStreaming() call.
+	 */
+	protected async reopenInterfaces(): Promise<void> {
+		if (this.isMini) {
+			this.ft601Counter = 0;
+			await ft601ClaimAll(this.dev);
+			this.ft601Counter = await ft601SetPipe(this.dev, this.ft601Counter, FT601_CTRL_RD, 64);
+			this.ft601Counter = await ft601SetPipe(this.dev, this.ft601Counter, FT601_CTRL_WR, 64);
+		} else {
+			await this.dev.open();
+			await this.dev.selectConfiguration(1);
+			await this.dev.claimInterface(0);
+		}
+	}
+
+	/**
+	 * Arm the FT601 IQ stream pipe (EP 0x83) before starting a USB stream.
+	 * Mirrors LimeSuite ResetStreamBuffers: flush the stream-read pipe, then
+	 * arm it to the FPGA data-packet size (STREAM_PKT_SIZE). The USB transferIn
+	 * length may be a larger multiple of this; the pipe size is per-packet.
+	 * No-op on the FX3 (LimeSDR-USB) path.
+	 */
+	protected async armStreamPipes(_transferSize: number): Promise<void> {
+		if (!this.isMini) return;
+		// Clear any residual halt on the stream-in endpoint from a prior attempt.
+		try {
+			await this.dev.clearHalt('in', FT601_STREAM_IN_NUM);
+		} catch {
+			/* endpoint not halted — fine */
+		}
+		this.ft601Counter = await ft601ResetStreamPipe(this.dev, this.ft601Counter, FT601_STREAM_RD, STREAM_PKT_SIZE);
+		console.log(`LimeSDR Mini: stream pipe armed (EP3, packetSize=${STREAM_PKT_SIZE}, counter=${this.ft601Counter})`);
+	}
+
 	protected sendCommand(cmd: number, payload?: Uint8Array): Promise<Uint8Array> {
 		const pkt = new Uint8Array(64);
 		pkt[0] = cmd;
@@ -91,15 +200,25 @@ export abstract class LimeSDRTransport {
 		}
 
 		const command = this.commandQueue.then(async () => {
-			const sent = await this.dev.transferOut(EP_CTRL_OUT, pkt);
-			if (sent.status !== 'ok' || sent.bytesWritten !== pkt.length) {
-				throw new Error(`LimeSDR: USB command write failed (status=${sent.status}, bytes=${sent.bytesWritten})`);
+			let response: Uint8Array;
+
+			if (this.isMini) {
+				// FT601 (LimeSDR Mini): bulk EP2 out → EP2 in, both 64 bytes, LMS64C framing.
+				await ft601ControlWrite(this.dev, pkt);
+				response = await ft601ControlRead(this.dev);
+			} else {
+				// FX3 (LimeSDR-USB): bulk EP0x0F out → EP15 in.
+				const sent = await this.dev.transferOut(EP_CTRL_OUT, pkt);
+				if (sent.status !== 'ok' || sent.bytesWritten !== pkt.length) {
+					throw new Error(`LimeSDR: USB command write failed (status=${sent.status}, bytes=${sent.bytesWritten})`);
+				}
+				const result = await this.dev.transferIn(EP_CTRL_IN_NUM, 64);
+				if (result.status !== 'ok' || result.data?.byteLength !== 64) {
+					throw new Error(`LimeSDR: USB command response failed (status=${result.status}, bytes=${result.data?.byteLength ?? 0})`);
+				}
+				response = new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
 			}
-			const result = await this.dev.transferIn(EP_CTRL_IN_NUM, 64);
-			if (result.status !== 'ok' || result.data?.byteLength !== 64) {
-				throw new Error(`LimeSDR: USB command response failed (status=${result.status}, bytes=${result.data?.byteLength ?? 0})`);
-			}
-			const response = new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
+
 			if (response[0] !== cmd) {
 				throw new Error(`LimeSDR: unexpected command response 0x${response[0].toString(16)} (expected 0x${cmd.toString(16)})`);
 			}

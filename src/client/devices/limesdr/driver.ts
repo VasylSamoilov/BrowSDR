@@ -22,13 +22,13 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 
 import {
 	CMD_LMS7002_RST,
-	EP_STREAM_IN_NUM,
 	STREAM_PKT_SIZE,
 	STREAM_HDR_SIZE,
 	NUM_TRANSFERS,
 	STREAM_START_TIMEOUT_MS,
 	STREAM_STOP_TIMEOUT_MS,
 	MAX_SAMPLE_RATE,
+	MINI_TRANSFER_SIZE,
 	REG_RESET,
 	REG_LML_CONF1,
 	REG_LML1_MAP,
@@ -163,6 +163,16 @@ export class LimeSDR extends LimeSDRClocks {
 
 		// 8d. Configure LML interface
 		await this.configureLML();
+
+		// 8d-mini. LimeSDR Mini interface clock chain (LimeSuite LMS7_LimeSDR_mini::SetRate):
+		// set CGEN interface dividers, then the LMS7002 TSP clock dividers that
+		// actually clock sample data onto the DIQ bus to the FPGA.
+		if (this.isMini) {
+			await this.modifyReg(0x0086, 11, 11, 0); // EN_ADCCLKH_CLKGN = 0
+			await this.modifyReg(0x0089, 12, 11, 2); // CLKH_OV_CLKL_CGEN = 2
+			await this.modifyReg(0x00ad, 2, 2, 0); // CDSN_RXALML = 0 (bypass path: !bypass is false here)
+			await this.setInterfaceFrequency(7, 7); // interpolation = decimation = 7 (bypass)
+		}
 
 		// 8e. Configure FPGA
 		await this.configureFPGA();
@@ -331,16 +341,24 @@ export class LimeSDR extends LimeSDRClocks {
 
 	async startStreaming(callback: (data: ArrayBufferView) => void, usbOnly = false): Promise<void> {
 		if (this.rxRunning) return;
+		this.miniTransferLogged = false;
 		this.rxLevel.reset();
 		const packed = this.packed;
-		const transferSize = streamTransferSize(packed);
+		const transferSize = this.isMini ? MINI_TRANSFER_SIZE : streamTransferSize(packed);
+		const streamEpNum = this.streamEndpointNumber;
 		const samplesPerPacket = streamSamplesPerPacket(packed);
 		this.streamStats.reset(samplesPerPacket, packed ? 12 : 16, transferSize, usbOnly);
 
 		// Follow exact LimeSuite Streamer::Start() sequence:
 
-		// 1. Select FPGA chip
-		await this.enableFpgaStreaming();
+		// Arm the FT601 stream pipe before enabling the FPGA (Mini only; no-op on FX3).
+		this.logMiniUsbState('startStreaming');
+		await this.armStreamPipes(transferSize);
+
+		// Mini: defer RX_EN until reads are posted (FT601 clocks the FIFO only
+		// while a host IN request is pending). FX3 enables RX before reads.
+		if (this.isMini) await this.prepareFpgaStreaming();
+		else await this.enableFpgaStreaming();
 
 		console.log(
 			`LimeSDR: RX enabled; waiting for USB samples (${NUM_TRANSFERS} transfers, ${transferSize} bytes each, ${packed ? 12 : 16}-bit link)`,
@@ -371,12 +389,16 @@ export class LimeSDR extends LimeSDRClocks {
 			let pendingSequence = 0;
 			const read = () => {
 				pendingSequence = nextSequence++;
-				return this.dev.transferIn(EP_STREAM_IN_NUM, transferSize);
+				const seq = pendingSequence;
+				const p = this.dev.transferIn(streamEpNum, transferSize);
+				this.logMiniRead(streamEpNum, transferSize, seq, p);
+				return p;
 			};
 			let pending = read();
 			while (this.rxRunning === transfers) {
 				try {
 					const result = await pending;
+					this.logFirstMiniTransfer(streamEpNum, result);
 					if (this.rxRunning !== transfers) break;
 					if (result.status !== 'ok' || !result.data) {
 						throw new Error(`USB IQ transfer failed (status=${result.status})`);
@@ -421,6 +443,14 @@ export class LimeSDR extends LimeSDRClocks {
 		};
 
 		for (let index = 0; index < NUM_TRANSFERS; index++) transfers.push(transfer());
+
+		// Mini: reads are posted; yield so each transferIn is submitted to the
+		// FT601, THEN assert RX_EN so the FPGA clocks into a pipe with pending reads.
+		if (this.isMini) {
+			await new Promise((r) => setTimeout(r, 0));
+			await this.enableFpgaRx();
+		}
+
 		try {
 			await started;
 			console.log('LimeSDR: USB IQ stream active');
@@ -456,9 +486,7 @@ export class LimeSDR extends LimeSDRClocks {
 					console.warn('LimeSDR: cancelling pending IQ transfers before restarting');
 					await this.dev.close();
 					await Promise.allSettled(transfers);
-					await this.dev.open();
-					await this.dev.selectConfiguration(1);
-					await this.dev.claimInterface(0);
+					await this.reopenInterfaces();
 				}
 			} finally {
 				clearTimeout(stopTimer);
@@ -466,7 +494,47 @@ export class LimeSDR extends LimeSDRClocks {
 		}
 	}
 
+	private miniTransferLogged = false;
+
+	private logMiniRead(ep: number, len: number, seq: number, p: Promise<USBInTransferResult>): void {
+		if (!import.meta.env.DEV || !this.isMini || seq >= 4) return;
+		console.log(`LimeSDR Mini: issuing transferIn(ep=${ep}, len=${len}) seq=${seq}`);
+		p.then(
+			(r) => console.log(`LimeSDR Mini: transferIn seq=${seq} SETTLED status=${r.status} bytes=${r.data?.byteLength ?? 0}`),
+			(e) => console.log(`LimeSDR Mini: transferIn seq=${seq} REJECTED ${e instanceof Error ? e.message : String(e)}`),
+		);
+	}
+
+	private logMiniUsbState(label: string): void {
+		if (!import.meta.env.DEV || !this.isMini) return;
+		const dev = this.dev;
+		const cfg = dev.configuration;
+		console.log(`LimeSDR Mini USB state [${label}]: cfg=${cfg?.configurationValue ?? 'none'} vid=${dev.vendorId.toString(16)} pid=${dev.productId.toString(16)}`);
+		if (!cfg) return;
+		for (const iface of cfg.interfaces) {
+			console.log(`  iface ${iface.interfaceNumber} claimed=${iface.claimed} alt=${iface.alternate?.alternateSetting}`);
+			for (const alt of iface.alternates) {
+				for (const ep of alt.endpoints) {
+					console.log(`    alt${alt.alternateSetting} EP${ep.endpointNumber} ${ep.direction} ${ep.type} pkt=${ep.packetSize}`);
+				}
+			}
+		}
+	}
+
+	private logFirstMiniTransfer(ep: number, result: USBInTransferResult): void {
+		if (!import.meta.env.DEV || !this.isMini || this.miniTransferLogged) return;
+		this.miniTransferLogged = true;
+		console.log(`LimeSDR Mini: first EP${ep} transferIn result status=${result.status} bytes=${result.data?.byteLength ?? 0}`);
+	}
+
 	private async enableFpgaStreaming() {
+		await this.prepareFpgaStreaming();
+		await this.enableFpgaRx();
+	}
+
+	/** Steps 1-5: chip-select, stop streaming, timestamp reset, FIFO reset,
+	 *  interface mode + channel enable. Everything EXCEPT asserting RX_EN. */
+	private async prepareFpgaStreaming() {
 		await this.writeFPGA(FPGA_REG_CHIP_SEL, 0x0001);
 
 		// 2. Stop any existing streaming (clear RX_EN and TX_EN)
@@ -475,7 +543,7 @@ export class LimeSDR extends LimeSDRClocks {
 
 		// 3. Reset timestamp counters (pulse: clear→set→clear)
 		// SMPL_NR_CLR = bit 0, TXPCT_LOSS_CLR = bit 1 → mask = 0x03
-		let reg9 = await this.readFPGA(FPGA_REG_TSTAMP);
+		const reg9 = await this.readFPGA(FPGA_REG_TSTAMP);
 		await this.writeFPGA(FPGA_REG_TSTAMP, reg9 & ~0x03);
 		await this.writeFPGA(FPGA_REG_TSTAMP, reg9 | 0x03);
 		await this.writeFPGA(FPGA_REG_TSTAMP, reg9 & ~0x03);
@@ -483,21 +551,29 @@ export class LimeSDR extends LimeSDRClocks {
 		// 4. Reset USB streaming FIFOs (0x00 = stream buffer reset)
 		await this.resetStreamBuffers();
 
-		// 5. Configure interface mode: MIMO (0x0100)
-		// MIMO mode properly captures I/Q from separate DDR edges
-		const mode = this.packed ? 0x0102 : 0x0100;
+		// 5. Configure interface mode per LimeSuite Streamer.cpp logic.
+		// Mini: SISO-DDR (0x0040, LML1_SISODDR=1 per SetRate). USB: MIMO (0x0100).
+		const sisoBit = this.isMini ? 0x0040 : 0x0100;
+		const mode = sisoBit | (this.packed ? 0x0002 : 0x0000);
 		await this.writeFPGA(FPGA_REG_IFACE, mode);
 		if (this.packed && (await this.readFPGA(FPGA_REG_IFACE)) !== mode) {
 			throw new Error('LimeSDR: FPGA did not enable packed 12-bit USB samples; select 16-bit USB format');
 		}
 		await this.writeFPGA(FPGA_REG_CH_EN, 1 << this.rxChannel);
+	}
 
+	/** Steps 6-7: assert RX_EN and pulse the post-start counter.
+	 *  On the Mini this is deliberately deferred until AFTER the first EP3
+	 *  reads are posted — the FT601 only clocks the FPGA 245-FIFO while a host
+	 *  IN request is pending, so enabling RX with no reads queued wedges the
+	 *  stream handshake and transferIn never resolves. */
+	private async enableFpgaRx() {
 		// 6. Enable RX streaming only (per LimeSuite StartStreaming — TX_EN not needed)
 		const ctrl2 = await this.readFPGA(FPGA_REG_CTRL);
 		await this.writeFPGA(FPGA_REG_CTRL, ctrl2 | 0x0001); // RX_EN only
 
 		// 7. Post-start counter pulse (bits 3 and 1, i.e. 5<<1 = 0x0A)
-		reg9 = await this.readFPGA(FPGA_REG_TSTAMP);
+		const reg9 = await this.readFPGA(FPGA_REG_TSTAMP);
 		await this.writeFPGA(FPGA_REG_TSTAMP, reg9 | (5 << 1));
 		await this.writeFPGA(FPGA_REG_TSTAMP, reg9 & ~(5 << 1));
 

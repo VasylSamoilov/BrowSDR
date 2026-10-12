@@ -42,12 +42,14 @@ export class LimeSDRCommandError extends Error {
 export const EP_CTRL_OUT = 0x0f; // Control command output
 export const EP_CTRL_IN_NUM = 15; // Control response input (endpoint number for transferIn)
 export const EP_STREAM_IN_NUM = 1; // IQ stream input (endpoint number for transferIn)
+export const FT601_STREAM_IN_NUM = 3; // LimeSDR Mini IQ stream input: epNum(FT601_STREAM_RD=0x83)
 
 // Streaming constants
 // 128 packets yield 130560 IQ samples, within the DSP's 131072-sample capacity.
 // At 61.44 MSPS this halves callbacks compared with 256KB reads.
-export const TRANSFER_SIZE = 524288; // 512 KB per bulk transfer
-export const STREAM_PKT_SIZE = 4096; // FPGA packet size
+export const TRANSFER_SIZE = 524288; // 512 KB per bulk transfer (LimeSDR-USB / FX3)
+export const STREAM_PKT_SIZE = 4096; // FPGA packet size (= sizeof(FPGA_DataPacket))
+export const MINI_TRANSFER_SIZE = STREAM_PKT_SIZE; // LimeSDR Mini / FT601: one FPGA_DataPacket per bulk read, matching the armed stream-pipe size (LimeSuite rxBatchSize=1)
 export const STREAM_HDR_SIZE = 16; // Packet header bytes
 export const STREAM_PAYLOAD = STREAM_PKT_SIZE - STREAM_HDR_SIZE; // 4080 bytes of IQ data
 export const NUM_TRANSFERS = 16; // ~34ms queued coverage at 61.44 MSPS; matches LimeSuite's FX3 context count
@@ -57,6 +59,7 @@ export const MAX_SAMPLE_RATE = 61.44e6;
 
 // Reference clock
 export const REF_CLK = 30.72e6; // LimeSDR-USB VCTCXO
+export const REF_CLK_MINI = 40e6; // LimeSDR Mini VCTCXO (FT601-based)
 
 // VCO frequency ranges
 export const CGEN_VCO_MIN = 1930e6;

@@ -80,6 +80,7 @@ export const DEVICE_CATALOG: DeviceCatalogEntry[] = [
 		filters: [
 			{ vendorId: 0x04b4, productId: 0x00f1 },
 			{ vendorId: 0x04b4, productId: 0x00f3 },
+			{ vendorId: 0x0403, productId: 0x601f },
 			{ vendorId: 0x1d50, productId: 0x6108 },
 		],
 	},
