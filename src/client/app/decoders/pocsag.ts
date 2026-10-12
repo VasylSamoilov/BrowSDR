@@ -5,14 +5,15 @@ import { POCSAG_CHARSETS } from '@/worker/decoders/charsets';
 
 /**
  * Represent one decoded character for the log display (after charset
- * conversion): a newline shows as the Unicode return symbol ⏎, carriage
- * return as nothing extra, other control / non-printable codes as <0xNN>.
- * Printable glyphs (incl. codepage glyphs) pass through unchanged.
+ * conversion): newline and carriage return both show as the Unicode return
+ * symbol ⏎ (they are line/message separators), other control / non-printable
+ * codes as <0xNN>. Printable glyphs (incl. codepage glyphs) pass through
+ * unchanged. CR must stay visible: dropping it merges HELLO⏎WORLD into
+ * HELLOWORLD in both the display and the text export.
  */
 export function pocsagDisplayChar(ch: string): string {
 	const code = ch.charCodeAt(0);
-	if (ch === '\n') return '⏎';
-	if (ch === '\r') return '';
+	if (ch === '\n' || ch === '\r') return '⏎';
 	if (code < 0x20 || code === 0x7f) return `<0x${code.toString(16).padStart(2, '0').toUpperCase()}>`;
 	return ch;
 }

@@ -159,6 +159,13 @@ export class _POCSAGSingleBaud {
 	cwBitCnt: number;
 	currentCw: number;
 	batchCwIdx: number;
+	// A corrected (1-2 bit) sync accepted WITHOUT a preceding alternating
+	// preamble (i.e. joining an ongoing transmission mid-stream, where the
+	// preamble is long past) is only PROVISIONAL: the first codeword after it
+	// must decode (BCH errors < 3) to confirm the lock, otherwise it was a
+	// noise false-lock and we drop back to hunt. An exact sync, or a corrected
+	// sync with preamble, is a confirmed lock (provisional === false).
+	provisional: boolean;
 	// Consecutive uncorrectable codewords while locked (ITU-R M.584-2 §2.5.1 /
 	// §2.3): drives end-of-message and full sync-loss. Reset by any correctable
 	// codeword.
@@ -221,6 +228,7 @@ export class _POCSAGSingleBaud {
 		this.cwBitCnt = 0;
 		this.currentCw = 0;
 		this.batchCwIdx = 0;
+		this.provisional = false;
 		this.consecBad = 0;
 
 		this.pageActive = false;
@@ -251,6 +259,7 @@ export class _POCSAGSingleBaud {
 		this.cwBitCnt = 0;
 		this.currentCw = 0;
 		this.batchCwIdx = 0;
+		this.provisional = false;
 		this.consecBad = 0;
 		this.pageActive = false;
 		this.pageBits = [];
@@ -260,21 +269,18 @@ export class _POCSAGSingleBaud {
 		this.statCodewords = 0;
 	}
 	/**
-	 * Adaptive DC removal. Tracks the signal DC continuously; when NOT locked
-	 * (bad signal / between bursts) the estimate crawls back toward 0 so a stale
-	 * offset can't bias the slicer into phantom bits. Clamped to a small range
-	 * so a transient glitch can't drag it far. Returns the DC-removed sample.
+	 * Adaptive DC removal. Tracks the signal DC continuously with an unclamped
+	 * IIR so the zero-crossing slicer stays gain-independent (an absolute clamp
+	 * in signal units caps the correctable offset, so at high gain a real DC
+	 * offset leaks through and biases the slice). The estimate must be allowed
+	 * to converge to the ACTUAL offset even before lock — pulling it toward 0
+	 * on every unlocked sample stops it cancelling a steady offset and blocks
+	 * acquisition of a DC-offset page. The IIR time constant alone keeps a
+	 * transient glitch from parking a large stale offset. Returns the
+	 * DC-removed sample.
 	 */
 	_removeDc(x: number): number {
 		this.dcLevel += this.dcAlpha * (x - this.dcLevel);
-		if (this.state !== 'data') this.dcLevel -= this.dcLevel * 0.0005;
-		// No absolute clamp: the slicer is a zero-crossing decision, so it is
-		// only gain-independent if DC is removed COMPLETELY. An absolute clamp
-		// (in signal units) caps the correctable DC, so at high gain a real DC
-		// offset exceeds the cap, leaks through, and biases the slice. The DC
-		// removal is an unclamped IIR. The crawl-to-zero
-		// above (when unlocked) and the IIR time constant already prevent a
-		// transient glitch from parking a large stale offset.
 		return x - this.dcLevel;
 	}
 
@@ -364,22 +370,39 @@ export class _POCSAGSingleBaud {
 			const dNorm = _pocsagHamming(this.shiftReg, _POCSAGSingleBaud.SYNC_WORD);
 			const dInv = _pocsagHamming(this.shiftReg, _POCSAGSingleBaud.SYNC_INVERTED);
 			// Acceptance tiers:
-			//   • EXACT match (0 bit errors): accept immediately — a full 32-bit
-			//     sync is decisive on its own, no preamble/timing gate needed.
-			//   • BCH-corrected (1-2 bit errors): require alternating preamble AND
-			//     good PLL timing (low nonconsec) to avoid wrong-rate / noise
-			//     false-locks.
+			//   • EXACT match (0 bit errors): accept immediately, confirmed — a
+			//     full 32-bit sync is decisive on its own.
+			//   • CORRECTED (1-2 bit errors) WITH preamble: confirmed lock — the
+			//     alternating preamble before the sync is strong corroboration.
+			//   • CORRECTED (1-2 bit errors) WITHOUT preamble but with good PLL
+			//     timing: accept PROVISIONALLY. Requiring preamble here would
+			//     reject every mid-transmission join, because batches after the
+			//     first carry no preamble before their FSC. The lock is confirmed
+			//     by the first following codeword decoding (see _onCodeword); a
+			//     noise false-lock produces an uncorrectable first codeword and is
+			//     dropped. The timing gate (low nonconsec) still rejects
+			//     wrong-baud candidates up front.
 			const preOk = this._preambleBefore() >= _POCSAGSingleBaud.MIN_PREAMBLE_BITS;
 			const timingOk = this.nonconsec < _POCSAGSingleBaud.NONCONSEC_MAX_SYNC;
-			const accept = (d: number) => d === 0 || (d <= _POCSAGSingleBaud.SYNC_TOLERANCE && preOk && timingOk);
-			if (accept(dNorm)) {
+			// Returns 'no' (reject), 'confirmed' (lock) or 'provisional' (lock,
+			// pending first-codeword confirmation).
+			const classify = (d: number): 'no' | 'confirmed' | 'provisional' => {
+				if (d === 0) return 'confirmed';
+				if (d > _POCSAGSingleBaud.SYNC_TOLERANCE || !timingOk) return 'no';
+				return preOk ? 'confirmed' : 'provisional';
+			};
+			const vNorm = classify(dNorm);
+			if (vNorm !== 'no') {
 				this.inverted = false;
 				this.pllLocked = true;
-				this._onSync();
-			} else if (accept(dInv)) {
+				this._onSync(vNorm === 'provisional');
+				return;
+			}
+			const vInv = classify(dInv);
+			if (vInv !== 'no') {
 				this.inverted = true;
 				this.pllLocked = true;
-				this._onSync();
+				this._onSync(vInv === 'provisional');
 			}
 			return;
 		}
@@ -462,9 +485,10 @@ export class _POCSAGSingleBaud {
 		this.resyncCountdown = 0;
 		this.cwBitCnt = 0;
 		this.currentCw = 0;
+		this.provisional = false;
 	}
 
-	_onSync(): void {
+	_onSync(provisional = false): void {
 		// Sync acquired (or re-acquired at a batch boundary). A batch is 16 data
 		// codewords; count them down, then search for the next FSC.
 		this.state = 'data';
@@ -474,7 +498,16 @@ export class _POCSAGSingleBaud {
 		this.cwBitCnt = 0;
 		this.currentCw = 0;
 		this.batchCwIdx = 0;
-		this.consecBad = 0;
+		// A provisional lock (corrected sync, no preamble) awaits confirmation
+		// from the first codeword. A batch-boundary resync of an already-open
+		// page is a confirmed lock (we were already decoding valid codewords).
+		this.provisional = provisional && !this.pageActive;
+		// Preserve the uncorrectable run ACROSS a batch boundary while a message
+		// is still open: an uncorrectable last information word in one batch
+		// followed by an uncorrectable first information word in the next must
+		// still trip the two-bad-codeword end-of-message policy (ITU-R M.584-2
+		// §2.5.1). Only a COLD lock from hunt (no page active) starts fresh.
+		if (!this.pageActive) this.consecBad = 0;
 	}
 
 	_onCodeword(cw: number): void {
@@ -484,6 +517,20 @@ export class _POCSAGSingleBaud {
 		const result = this._eccCorrect(cw);
 		const errors = result.errors;
 		const corrected = result.cw;
+
+		// Confirm or reject a PROVISIONAL lock (corrected sync accepted without a
+		// preamble, e.g. a mid-transmission join). The first codeword decides: a
+		// decodable word (errors < 3) corroborates the sync and confirms the
+		// lock; an uncorrectable word means the "sync" was a noise coincidence —
+		// drop back to hunt WITHOUT emitting anything, so the false-lock
+		// protection the preamble gate used to provide is retained.
+		if (this.provisional) {
+			if (errors >= 3) {
+				this._unlock();
+				return;
+			}
+			this.provisional = false;
+		}
 
 		// Accumulate bit-error stats over a decaying window. errors is 0/1/2 for
 		// corrected codewords, 3 for uncorrectable (capped). 31 payload bits per
@@ -761,12 +808,27 @@ export class _POCSAGSingleBaud {
 		const alphaQ = this._scoreCandidate(alpha.text, 'alpha');
 		const numericQ = this._scoreCandidate(numeric.text, 'numeric');
 		const numericIsPureDigits = numeric.text.length > 0 && /^[0-9 -]+$/.test(numeric.text);
+		// A clean alpha reading is one with no control characters — i.e. every
+		// character is legitimate alpha content (alphaQ === 1). When the alpha
+		// reading is clean AND the numeric reading is pure digits, the page is
+		// genuinely ambiguous: both interpretations are plausible (a short alpha
+		// page such as "A"/"AB"/"12345" also reads as digits). Numeric must NOT
+		// win that tie — doing so turns independently-encoded alpha pages into
+		// numeric gibberish while forced-Alpha recovers the original. Prefer
+		// alpha on the tie (it preserves the content and matches main /
+		// forced-Alpha) and require numeric to score STRICTLY higher to win.
+		const alphaIsClean = alpha.text.length > 0 && alphaQ >= 1;
+		const ambiguous = alphaIsClean && numericIsPureDigits;
 		let chosen: 'alpha' | 'numeric';
-		if (numericIsPureDigits && numericQ >= alphaQ) chosen = 'numeric';
+		if (numericIsPureDigits && numericQ > alphaQ) chosen = 'numeric';
 		else if (alphaQ >= 0.8 || alphaQ + 0.1 >= numericQ) chosen = 'alpha';
 		else chosen = 'numeric';
 		const detectScores = `a=${alphaQ.toFixed(2)} n=${numericQ.toFixed(2)}`;
-		const altGuess = this.showSecondGuess
+		// Surface the runner-up interpretation when the user asked for it OR when
+		// the page is genuinely ambiguous — so a tied reading is never silently
+		// hidden behind the default pick.
+		const showAlt = this.showSecondGuess || ambiguous;
+		const altGuess = showAlt
 			? chosen === 'alpha'
 				? { type: 'numeric' as const, text: numeric.text }
 				: { type: 'alpha' as const, text: alpha.text }

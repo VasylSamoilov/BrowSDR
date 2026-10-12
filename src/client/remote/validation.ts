@@ -58,7 +58,10 @@ const validators: Record<string, (value: Record<string, unknown>) => boolean> = 
 		typeof value.msg.text === 'string' &&
 		numbers(value.msg, ['capcode', 'func', 'baud']) &&
 		['alpha', 'tone', 'numeric'].includes(String(value.msg.type)) &&
-		(value.msg.charStatus === undefined || Array.isArray(value.msg.charStatus)),
+		(value.msg.charStatus === undefined ||
+			(Array.isArray(value.msg.charStatus) && value.msg.charStatus.every((s: unknown) => typeof s === 'number'))) &&
+		(value.msg.detectDebug === undefined || typeof value.msg.detectDebug === 'string') &&
+		(value.msg.alt === undefined || validPocsagAlt(value.msg.alt)),
 	pocsag_status: (value: Record<string, unknown>) =>
 		numbers(value, ['vfoIndex', 'freq']) &&
 		isRecord(value.status) &&
@@ -72,6 +75,16 @@ const validators: Record<string, (value: Record<string, unknown>) => boolean> = 
 
 function validRadio(value: unknown): boolean {
 	return numbers(value, ['centerFreq', 'frequencyShift', 'sampleRate', 'fftSize']);
+}
+
+/**
+ * The optional runner-up interpretation attached to a POCSAG message. Export
+ * and the panel iterate alt.text, so an otherwise-valid message carrying
+ * alt: { type: 'numeric', text: 42 } must be rejected here — not caught later
+ * as a TypeError during rendering.
+ */
+function validPocsagAlt(value: unknown): boolean {
+	return isRecord(value) && ['alpha', 'numeric'].includes(String(value.type)) && typeof value.text === 'string';
 }
 
 function validRdsMessage(value: unknown): boolean {
