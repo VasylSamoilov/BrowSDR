@@ -23,7 +23,7 @@ function toolGroups(receiver: AppInstance): UiMenuGroup[] {
 					description: 'Pager messages',
 					icon: 'pager',
 					active: vfos.some((vfo) => vfo.pocsag),
-					open: receiver.pocsag.panelOpen,
+					open: receiver.pager.panelOpen,
 				},
 				{
 					id: 'rds',
@@ -126,7 +126,7 @@ function selectTool(receiver: AppInstance, id: string, openOnly = false): void {
 	else {
 		const panels = {
 			whisper: receiver.whisper,
-			pocsag: receiver.pocsag,
+			pocsag: receiver.pager,
 			rds: receiver.rds,
 			rtl433: receiver.rtl433,
 			adsb: receiver.adsb,

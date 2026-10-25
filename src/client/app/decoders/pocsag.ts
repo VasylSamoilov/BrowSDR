@@ -1,7 +1,19 @@
 import type { POCSAGMessage, POCSAGStatus } from '@/worker/decoders/types';
 import type { AppInstance } from '@/app/core/receiver.types';
-import type { PocsagLogEntry } from '@/app/decoders/types';
-import { POCSAG_CHARSETS } from '@/worker/decoders/charsets';
+import type { PagerLogEntry } from '@/app/decoders/types';
+import { CHARSETS, hasCharsets, defaultCharset } from '@/worker/decoders/charsets';
+import type { PagerProtocol } from '@/worker/decoders/charsets';
+
+/** Static descriptor for each pager protocol the UI can present. POCSAG is the
+ * only wired decoder today; GSC and FLEX are listed so the UI renders their
+ * controls as they come online (their boolean VFO flag + worker decoder land
+ * with each protocol). `hasCharsets` is resolved from the registry so a
+ * default-only protocol (GSC) never shows a charset selector. */
+export const PAGER_PROTOCOLS: Array<{ id: PagerProtocol; label: string }> = [
+	{ id: 'pocsag', label: 'POCSAG' },
+	// { id: 'gsc', label: 'GSC' },   // added with the GSC decoder (default-only)
+	// { id: 'flex', label: 'FLEX' }, // added with the FLEX decoder
+];
 
 /**
  * Represent one decoded character for the log display (after charset
@@ -26,8 +38,21 @@ export function pocsagDisplayText(text: string): string {
 }
 
 export const pocsagMethods = {
-	togglePocsagPanel(this: AppInstance) {
-		this.pocsag.panelOpen = !this.pocsag.panelOpen;
+	togglePagerPanel(this: AppInstance) {
+		this.pager.panelOpen = !this.pager.panelOpen;
+	},
+	/** List of pager protocols for the per-VFO multi-select. */
+	pagerProtocols(this: AppInstance): Array<{ id: PagerProtocol; label: string; hasCharsets: boolean }> {
+		return PAGER_PROTOCOLS.map((p) => ({ ...p, hasCharsets: hasCharsets(p.id) }));
+	},
+	/** Set the panel's protocol row filter. */
+	setPagerFilter(this: AppInstance, value: string) {
+		this.pager.filter = (value as PagerProtocol | 'all') ?? 'all';
+	},
+	/** Panel rows after applying the protocol filter. */
+	pagerRows(this: AppInstance): PagerLogEntry[] {
+		const f = this.pager.filter;
+		return f === 'all' ? this.pager.log : this.pager.log.filter((e) => e.protocol === f);
 	},
 	/**
 	 * Decode-POCSAG toggle. On enable, apply POCSAG-friendly RX defaults so it
@@ -44,22 +69,27 @@ export const pocsagMethods = {
 		}
 		this.updateBackendVfoParams(i);
 	},
-	/** All selectable POCSAG charsets grouped by vendor, for the UI dropdown. */
-	pocsagCharsetGroups(this: AppInstance): Array<{ vendor: string; items: Array<{ value: string; label: string }> }> {
+	/** All selectable charsets for a protocol, grouped by vendor, for the UI
+	 * dropdown. Data-driven off the registry so each protocol shows only its own
+	 * codepages (POCSAG now; FLEX when populated). */
+	pagerCharsetGroups(
+		this: AppInstance,
+		protocol: PagerProtocol,
+	): Array<{ vendor: string; items: Array<{ value: string; label: string }> }> {
 		const groups = new Map<string, Array<{ value: string; label: string }>>();
-		for (const e of POCSAG_CHARSETS) {
+		for (const e of CHARSETS[protocol] ?? []) {
 			const value = `${e.vendor}\u0000${e.model}\u0000${e.codepage}`;
 			if (!groups.has(e.vendor)) groups.set(e.vendor, []);
 			groups.get(e.vendor)!.push({ value, label: e.label });
 		}
 		return [...groups.entries()].map(([vendor, items]) => ({ vendor, items }));
 	},
-	/** Current charset value string for a VFO's <select> binding. */
+	/** Current POCSAG charset value string for a VFO's <select> binding. */
 	pocsagCharsetValue(this: AppInstance, i: number): string {
-		const k = this.vfos[i]?.pocsagCharset ?? { vendor: 'generic', model: 'generic', codepage: 'ascii' };
+		const k = this.vfos[i]?.pocsagCharset ?? defaultCharset('pocsag');
 		return `${k.vendor}\u0000${k.model}\u0000${k.codepage}`;
 	},
-	/** Apply a charset selection to a VFO and push it to the decoder. */
+	/** Apply a POCSAG charset selection to a VFO and push it to the decoder. */
 	setPocsagCharset(this: AppInstance, i: number, value: string) {
 		const [vendor, model, codepage] = value.split('\u0000');
 		this.vfos[i].pocsagCharset = { vendor, model, codepage };
@@ -75,13 +105,14 @@ export const pocsagMethods = {
 		return pocsagDisplayText(text);
 	},
 	_onPocsagStatus(this: AppInstance, vfoIndex: number, _freqMhz: number, status: POCSAGStatus) {
-		if (!this.pocsag.status) this.pocsag.status = [];
-		this.pocsag.status[vfoIndex] = status;
+		if (!this.pocsagStatus) this.pocsagStatus = [];
+		this.pocsagStatus[vfoIndex] = status;
 	},
 	_onPocsagMessage(this: AppInstance, vfoIndex: number, freqMhz: number, msg: POCSAGMessage) {
 		const time = new Date().toLocaleTimeString();
 		const freq = freqMhz ? this.formatFreq(freqMhz) + ' MHz' : '';
-		this.pocsag.log.push({
+		this.pager.log.push({
+			protocol: 'pocsag',
 			time,
 			freq,
 			vfoIndex,
@@ -97,7 +128,7 @@ export const pocsagMethods = {
 		// Auto-scroll
 		Promise.resolve(
 			this.$nextTick(() => {
-				const el = this.$refs.pocsagBody;
+				const el = this.$refs.pagerBody;
 				if (el) el.scrollTop = el.scrollHeight;
 			}),
 		).catch((error: unknown) => console.error(error));
@@ -107,7 +138,7 @@ export const pocsagMethods = {
 	 * the template can colour-code each run (ok / corrected / uncorrectable)
 	 * with a single span per run instead of one span per character.
 	 */
-	pocsagSegments(this: AppInstance, entry: PocsagLogEntry): Array<{ text: string; status: number }> {
+	pocsagSegments(this: AppInstance, entry: PagerLogEntry): Array<{ text: string; status: number }> {
 		const { text, charStatus } = entry;
 		if (!charStatus || charStatus.length === 0) return [{ text: pocsagDisplayText(text), status: 0 }];
 		const segments: Array<{ text: string; status: number }> = [];
@@ -127,19 +158,19 @@ export const pocsagMethods = {
 		if (cur) segments.push({ text: cur, status: curStatus });
 		return segments;
 	},
-	clearPocsag(this: AppInstance) {
-		this.pocsag.log = [];
+	clearPager(this: AppInstance) {
+		this.pager.log = [];
 	},
-	exportPocsag(this: AppInstance) {
-		const lines = this.pocsag.log.map(
+	exportPager(this: AppInstance) {
+		const lines = this.pager.log.map(
 			(e) =>
-				`[${e.time}] ${e.freq}  CAP:${e.capcode}  F:${['A', 'B', 'C', 'D'][e.func] || '?'}  TYPE:${e.type}  ${e.text ? pocsagDisplayText(e.text) : '(tone)'}${e.alt && e.alt.text ? '  (' + e.alt.type + ': ' + pocsagDisplayText(e.alt.text) + ')' : ''}${e.detectDebug ? '  [' + e.detectDebug + ']' : ''}`,
+				`[${e.time}] ${e.protocol.toUpperCase()}  ${e.freq}  CAP:${e.capcode}  F:${['A', 'B', 'C', 'D'][e.func ?? -1] || '?'}  TYPE:${e.type}  ${e.text ? pocsagDisplayText(e.text) : '(tone)'}${e.alt && e.alt.text ? '  (' + e.alt.type + ': ' + pocsagDisplayText(e.alt.text) + ')' : ''}${e.detectDebug ? '  [' + e.detectDebug + ']' : ''}`,
 		);
 		const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `pocsag-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+		a.download = `pager-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
 		a.click();
 		URL.revokeObjectURL(url);
 	},
