@@ -2,6 +2,7 @@ import type { POCSAGMessage, POCSAGStatus, PocsagMode } from './types';
 import { POCSAG_CHAR_CORRECTED, POCSAG_CHAR_OK, POCSAG_CHAR_UNCORRECTABLE } from './types';
 import type { CharsetKey } from './charsets';
 import { pocsagCodepage, POCSAG_DEFAULT_CHARSET } from './charsets';
+import { FskBitSlicer, BerWindow } from './fsk-frontend';
 /*
 Copyright (c) 2026, jLynx <https://github.com/jLynx>
 
@@ -130,20 +131,25 @@ export class _POCSAGSingleBaud {
 	baudRate: number;
 	onMessage: (msg: POCSAGMessage) => void;
 
-	dcLevel: number;
-	dcAlpha: number;
-	// PLL lock state (drives the dual-rate timing gain).
-	pllLocked: boolean;
-	pllTimeout: number;
-	/** Mid-symbol crossings within the current symbol.
-	 * High on a wrong-baud signal → used to block false sync acquisition. */
-	nonconsec: number;
-	/** Consecutive alternating (1010…) bits seen — preamble quality before sync. */
+	/** Shared NFM/2-FSK bit recovery (DC removal + timing PLL + bit slicing). */
+	slicer: FskBitSlicer;
+	/** nonconsec/pllLocked are owned by the slicer; expose them so the sync
+	 * logic below reads/sets them exactly as before. */
+	get nonconsec(): number {
+		return this.slicer.nonconsec;
+	}
+	set nonconsec(v: number) {
+		this.slicer.nonconsec = v;
+	}
+	get pllLocked(): boolean {
+		return this.slicer.pllLocked;
+	}
+	set pllLocked(v: boolean) {
+		this.slicer.pllLocked = v;
+	}
 	/** Upper 32 bits of the 64-bit RX window (bits above the sync in shiftReg),
 	 * used to measure the alternating preamble that precedes a sync word. */
 	shiftRegHi: number;
-	clockPhase: number;
-	lastSample: number;
 
 	shiftReg: number;
 	inverted: boolean;
@@ -178,13 +184,10 @@ export class _POCSAGSingleBaud {
 	// Per-bit decode status parallel to pageBits: 0=ok, 1=corrected, 2=bad.
 	pageBitStatus: number[];
 
-	// Rolling bit-error stats over the most recent window of decoded codewords.
-	// errBits = count of BCH-corrected bits; totalBits = 31 payload bits per
-	// codeword observed. BER = errBits / totalBits. The window halves itself
-	// once it fills, giving an exponentially-decaying recent average.
-	statErrBits: number;
-	statTotalBits: number;
-	statCodewords: number;
+	// Rolling bit-error rate over the most recent window of decoded codewords
+	// (BCH-corrected bits / payload bits), via the shared decaying-window
+	// accumulator.
+	ber: BerWindow = new BerWindow();
 
 	// Selected codepage key (protocol-implied: pocsag). Decides which glyph
 	// table _decodeAlpha uses. Defaults to generic ASCII.
@@ -205,18 +208,9 @@ export class _POCSAGSingleBaud {
 		this.mode = 'auto';
 		this.showSecondGuess = false;
 
-		this.dcLevel = 0;
-		// DC-removal time constant fixed in BIT units (~64 bits), not samples,
-		// so it is identical at every baud. A per-sample constant (e.g. 0.001)
-		// is ~10 bits at 512 Bd — fast enough to chase a run of same-value data
-		// bits and corrupt the slice. Scaling by spb keeps it slow at all rates.
-		this.dcAlpha = 1 / (64 * this.spb);
-		this.pllLocked = false;
-		this.pllTimeout = 0;
-		this.nonconsec = 0;
+		// Shared NFM/2-FSK bit recovery (DC removal + timing PLL + bit slicing).
+		this.slicer = new FskBitSlicer(audioRate, baud, (bit) => this._onBit(bit));
 		this.shiftRegHi = 0;
-		this.clockPhase = 0;
-		this.lastSample = 0;
 
 		this.shiftReg = 0;
 		this.inverted = false;
@@ -236,21 +230,12 @@ export class _POCSAGSingleBaud {
 		this.pageFunc = 0;
 		this.pageBits = [];
 		this.pageBitStatus = [];
-
-		this.statErrBits = 0;
-		this.statTotalBits = 0;
-		this.statCodewords = 0;
 	}
 
 	reset(): void {
-		this.dcLevel = 0;
-		this.dcAlpha = 1 / (64 * this.spb); // rate-aware DC TC (~64 bits)
-		this.pllLocked = false;
-		this.pllTimeout = 0;
-		this.nonconsec = 0;
+		this.slicer.reset();
+		this.ber.reset();
 		this.shiftRegHi = 0;
-		this.clockPhase = 0;
-		this.lastSample = 0;
 		this.shiftReg = 0;
 		this.state = 'hunt';
 		this.batchRemain = 0;
@@ -264,70 +249,10 @@ export class _POCSAGSingleBaud {
 		this.pageActive = false;
 		this.pageBits = [];
 		this.pageBitStatus = [];
-		this.statErrBits = 0;
-		this.statTotalBits = 0;
-		this.statCodewords = 0;
-	}
-	/**
-	 * Adaptive DC removal. Tracks the signal DC continuously with an unclamped
-	 * IIR so the zero-crossing slicer stays gain-independent (an absolute clamp
-	 * in signal units caps the correctable offset, so at high gain a real DC
-	 * offset leaks through and biases the slice). The estimate must be allowed
-	 * to converge to the ACTUAL offset even before lock — pulling it toward 0
-	 * on every unlocked sample stops it cancelling a steady offset and blocks
-	 * acquisition of a DC-offset page. The IIR time constant alone keeps a
-	 * transient glitch from parking a large stale offset. Returns the
-	 * DC-removed sample.
-	 */
-	_removeDc(x: number): number {
-		this.dcLevel += this.dcAlpha * (x - this.dcLevel);
-		return x - this.dcLevel;
 	}
 
 	process(samples: Float32Array): void {
-		const spb = this.spb;
-		const spbHalf = spb * 0.5;
-
-		for (let i = 0; i < samples.length; i++) {
-			const s = this._removeDc(samples[i]);
-
-			// Zero-crossing timing PLL: nudge the clock so transitions land at
-			// the symbol midpoint (spbHalf), i.e. bit centres at phase 0/spb.
-			if (this.lastSample < 0 !== s < 0) {
-				let err = this.clockPhase - spbHalf;
-				if (err > spbHalf) err -= spb;
-				if (err < -spbHalf) err += spb;
-				// Crossing-quality (in our phase convention):
-				// a GOOD transition lands near the expected point (spbHalf, small
-				// |err|). A crossing far from it — near the bit CENTRE at 0/spb —
-				// is a mid-symbol transition that shouldn't exist at the correct
-				// baud rate. Count those within a symbol; a wrong-rate signal
-				// produces many, which blocks sync acquisition below.
-				if (Math.abs(err) < spb * 0.25) this.nonconsec = 0;
-				else this.nonconsec++;
-				// Hard-gate: ignore corrections larger than 40% of a bit period.
-				if (Math.abs(err) < spb * 0.4) {
-					const rate = this.pllLocked ? 0.045 : 0.05;
-					this.clockPhase -= err * rate;
-				}
-				this.pllTimeout = 0;
-			}
-			this.lastSample = s;
-
-			// Sample at the bit centre (phase wrap). POCSAG standard: mark ("1")
-			// = negative deviation, so s < 0 → 1. (Majority voting was tried but
-			// regressed timing; the single-centre sample with the improved DC
-			// tracking is the reliable path.)
-			if (++this.clockPhase >= spb) {
-				this.clockPhase -= spb;
-				const bit = s < 0 ? 1 : 0;
-				// PLL timeout: grows each symbol with no crossing; too many in a
-				// row → treat the PLL as unlocked (back to the faster gain).
-				if (++this.pllTimeout > 100) this.pllLocked = false;
-				this.nonconsec = 0;
-				this._onBit(bit);
-			}
-		}
+		this.slicer.process(samples);
 	}
 
 	/**
@@ -534,15 +459,8 @@ export class _POCSAGSingleBaud {
 
 		// Accumulate bit-error stats over a decaying window. errors is 0/1/2 for
 		// corrected codewords, 3 for uncorrectable (capped). 31 payload bits per
-		// codeword. Halve the window once it fills so BER tracks the recent past.
-		this.statErrBits += Math.min(errors, 3);
-		this.statTotalBits += 31;
-		this.statCodewords++;
-		if (this.statCodewords >= 64) {
-			this.statErrBits *= 0.5;
-			this.statTotalBits *= 0.5;
-			this.statCodewords = 32;
-		}
+		// codeword.
+		this.ber.add(Math.min(errors, 3), 31);
 
 		if (errors >= 3) {
 			this.consecBad++;
@@ -904,8 +822,8 @@ export class _POCSAGSingleBaud {
 			synced,
 			baud: synced ? this.baudRate : null,
 			inverted: this.inverted,
-			ber: this.statTotalBits > 0 ? this.statErrBits / this.statTotalBits : null,
-			codewords: this.statCodewords,
+			ber: this.ber.ber,
+			codewords: this.ber.count,
 		};
 	}
 }
