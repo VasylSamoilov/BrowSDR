@@ -29,6 +29,14 @@ export interface PagerLogEntry {
 	detectDebug?: string;
 	/** Runner-up interpretation (second guess), shown dimmed when enabled. */
 	alt?: { type: 'alpha' | 'numeric'; text: string };
+	/** GSC: corrected (FEC-repaired) codeword count for the message. */
+	errorCount?: number;
+	/** GSC: uncorrectable codeword count (decode failed) for the message. */
+	uncorrectableCount?: number;
+	/** GSC voice page lifecycle: 'start' / 'stop'. */
+	voiceEvent?: 'start' | 'stop';
+	/** GSC: why the voice page ended (on a 'stop' event). */
+	voiceEndReason?: 'activation' | 'preamble' | 'silence' | 'timeout';
 }
 
 /** @deprecated Use PagerLogEntry. Kept as an alias during migration. */

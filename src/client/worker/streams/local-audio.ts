@@ -1,21 +1,28 @@
-import type { AudioCallback, WhisperCallback, PocsagCallback, PocsagStatusCallback } from '@/worker/runtime/callbacks.types';
+import type { AudioCallback, WhisperCallback, PagerCallbacks } from '@/worker/runtime/callbacks.types';
 import { downmix } from '@/audio/pcm';
 import type { AudioChannels } from '@/audio/types';
 import type { DspAudio } from '@/worker/runtime/dsp-messages.types';
 import * as Comlink from 'comlink';
 import { POCSAGDecoder } from '@/worker/decoders/pocsag';
+import { GSCDecoder } from '@/worker/decoders/golay';
 import type { VfoParams, VfoState, PerfCounters } from '@/worker/runtime/types';
 import { AUDIO_RATE } from '@/worker/runtime/constants';
 import type { Backend } from '@/worker/runtime/backend';
 import { appendPcm, mixLength } from './audio-queue';
+
+/** Whisper transcription runs on a VFO only when no pager protocol is decoding
+ * it (pager audio is data, not speech). */
+function shouldFeedWhisper(backend: Backend, params: VfoParams): boolean {
+	return !!backend._whisperEnabled && !params.pocsag && !params.gsc;
+}
+
 export function installWorkerAudioHandler(
 	backend: Backend,
 	_audioDebugCounter: number,
 	perf: PerfCounters,
 	whisperCallback: WhisperCallback | null,
 	pushWhisper: (v: number, freq: number, samples: Float32Array) => void,
-	pocsagCallback: PocsagCallback | null,
-	pocsagStatusCallback: PocsagStatusCallback | null,
+	pager: PagerCallbacks,
 	pushAudio: AudioCallback,
 ) {
 	const handleWorkerAudio = (v: number, msg: DspAudio): void => {
@@ -47,13 +54,12 @@ export function installWorkerAudioHandler(
 
 			if (params.enabled) {
 				queueLocalPcm(state, out, channels);
-
-				if (backend._whisperEnabled && !params.pocsag && whisperCallback) {
+				if (whisperCallback && shouldFeedWhisper(backend, params)) {
 					pushWhisper(v, params.freq, downmix(out, channels));
 				}
 			}
 
-			decodeLocalPager(pocsagCallback, pocsagStatusCallback, params, state, v, out);
+			decodeLocalPager(pager, params, state, v, out);
 
 			// Clean up RDS decoder when disabled
 			if ((!params.rds || params.mode !== 'wfm') && state.rdsDecoder) {
@@ -80,19 +86,18 @@ function queueLocalPcm(state: VfoState, samples: Float32Array, channels: AudioCh
 }
 
 export function decodeLocalPager(
-	pocsagCallback: PocsagCallback | null,
-	pocsagStatusCallback: PocsagStatusCallback | null,
+	pager: PagerCallbacks,
 	params: VfoParams,
 	state: VfoState,
 	v: number,
 	out: Float32Array<ArrayBuffer>,
 ) {
-	if (pocsagCallback && params.pocsag && params.mode === 'nfm') {
+	if (pager.pocsag && params.pocsag && params.mode === 'nfm') {
 		if (!state.pocsagDecoder) {
 			state.pocsagDecoder = new POCSAGDecoder(
 				AUDIO_RATE,
 				(pmsg) => {
-					pocsagCallback(v, params.freq, pmsg);
+					pager.pocsag?.(v, params.freq, pmsg);
 				},
 				params.pocsagCharset,
 			);
@@ -107,16 +112,47 @@ export function decodeLocalPager(
 		state.pocsagDecoder.setShowSecondGuess(params.pocsagSecondGuess ?? false);
 		state.pocsagDecoder.process(out);
 		// Emit a throttled link-status snapshot (sync / baud / inversion / BER).
-		if (pocsagStatusCallback) {
+		if (pager.pocsagStatus) {
 			const now = Date.now();
 			if (state.pocsagStatusAt == null || now - state.pocsagStatusAt >= 500) {
 				state.pocsagStatusAt = now;
-				pocsagStatusCallback(v, params.freq, state.pocsagDecoder.getStatus());
+				pager.pocsagStatus(v, params.freq, state.pocsagDecoder.getStatus());
 			}
 		}
 	} else if (!params.pocsag && state.pocsagDecoder) {
 		state.pocsagDecoder = null;
 		state.pocsagStatusAt = undefined;
+	}
+
+	// GSC runs on the same NFM audio; both can be enabled on one VFO.
+	decodeLocalGsc(pager, params, state, v, out);
+}
+
+/** GSC decode branch (separate so decodeLocalPager stays simple). */
+function decodeLocalGsc(
+	pager: PagerCallbacks,
+	params: VfoParams,
+	state: VfoState,
+	v: number,
+	out: Float32Array<ArrayBuffer>,
+) {
+	if (pager.gsc && params.gsc && params.mode === 'nfm') {
+		if (!state.gscDecoder) {
+			state.gscDecoder = new GSCDecoder(AUDIO_RATE, (gmsg) => {
+				pager.gsc?.(v, params.freq, gmsg);
+			});
+		}
+		state.gscDecoder.process(out);
+		if (pager.gscStatus) {
+			const now = Date.now();
+			if (state.gscStatusAt == null || now - state.gscStatusAt >= 500) {
+				state.gscStatusAt = now;
+				pager.gscStatus(v, params.freq, state.gscDecoder.getStatus());
+			}
+		}
+	} else if (!params.gsc && state.gscDecoder) {
+		state.gscDecoder = null;
+		state.gscStatusAt = undefined;
 	}
 }
 

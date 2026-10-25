@@ -19,10 +19,10 @@ function toolGroups(receiver: AppInstance): UiMenuGroup[] {
 				},
 				{
 					id: 'pocsag',
-					label: 'POCSAG',
-					description: 'Pager messages',
+					label: 'Pager',
+					description: 'Pager messages (POCSAG, GSC)',
 					icon: 'pager',
-					active: vfos.some((vfo) => vfo.pocsag),
+					active: vfos.some((vfo) => vfo.pocsag || vfo.gsc),
 					open: receiver.pager.panelOpen,
 				},
 				{

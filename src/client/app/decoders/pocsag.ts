@@ -1,17 +1,16 @@
-import type { POCSAGMessage, POCSAGStatus } from '@/worker/decoders/types';
+import type { POCSAGMessage, POCSAGStatus, GSCMessage, GSCStatus } from '@/worker/decoders/types';
 import type { AppInstance } from '@/app/core/receiver.types';
 import type { PagerLogEntry } from '@/app/decoders/types';
 import { CHARSETS, hasCharsets, defaultCharset } from '@/worker/decoders/charsets';
 import type { PagerProtocol } from '@/worker/decoders/charsets';
 
-/** Static descriptor for each pager protocol the UI can present. POCSAG is the
- * only wired decoder today; GSC and FLEX are listed so the UI renders their
- * controls as they come online (their boolean VFO flag + worker decoder land
- * with each protocol). `hasCharsets` is resolved from the registry so a
- * default-only protocol (GSC) never shows a charset selector. */
+/** Static descriptor for each pager protocol the UI can present. POCSAG and GSC
+ * are wired; FLEX is listed for when its decoder lands. `hasCharsets` is
+ * resolved from the registry so a default-only protocol (GSC) never shows a
+ * charset selector. */
 export const PAGER_PROTOCOLS: Array<{ id: PagerProtocol; label: string }> = [
 	{ id: 'pocsag', label: 'POCSAG' },
-	// { id: 'gsc', label: 'GSC' },   // added with the GSC decoder (default-only)
+	{ id: 'gsc', label: 'GSC' },
 	// { id: 'flex', label: 'FLEX' }, // added with the FLEX decoder
 ];
 
@@ -35,6 +34,34 @@ export function pocsagDisplayText(text: string): string {
 	let out = '';
 	for (const ch of text) out += pocsagDisplayChar(ch);
 	return out;
+}
+
+/** Format a GSC 7-symbol functional address for display. The raw address is
+ * I G1 G0 A2 A1 A0 <suffix>: group it as I-G1G0-A2A1A0 with the function suffix
+ * appended after a space, e.g. "1234567" -> "1-23-456 7". Anything that does
+ * not match the expected shape is returned unchanged. */
+export function formatGscAddress(addr: string): string {
+	if (addr.length < 6) return addr;
+	const i = addr[0];
+	const g = addr.slice(1, 3);
+	const a = addr.slice(3, 6);
+	const suffix = addr.slice(6);
+	return suffix ? `${i}-${g}-${a} ${suffix}` : `${i}-${g}-${a}`;
+}
+
+/** One line of the plain-text pager export. POCSAG carries a function
+ * sub-address (A-D); GSC does not (its function is in the address suffix), so
+ * the F: field is POCSAG-only. GSC voice pages show their start/stop event. */
+export function formatPagerExportLine(e: PagerLogEntry): string {
+	const head = `[${e.time}] ${e.protocol.toUpperCase()}  ${e.freq}  CAP:${e.capcode}`;
+	const func = e.protocol === 'pocsag' ? `  F:${['A', 'B', 'C', 'D'][e.func ?? -1] || '?'}` : '';
+	let body: string;
+	if (e.voiceEvent === 'start') body = 'VOICE START';
+	else if (e.voiceEvent === 'stop') body = `VOICE END${e.voiceEndReason ? ` (${e.voiceEndReason})` : ''}`;
+	else body = e.text ? pocsagDisplayText(e.text) : '(tone)';
+	const alt = e.alt && e.alt.text ? `  (${e.alt.type}: ${pocsagDisplayText(e.alt.text)})` : '';
+	const dbg = e.detectDebug ? `  [${e.detectDebug}]` : '';
+	return `${head}${func}  TYPE:${e.type}  ${body}${alt}${dbg}`;
 }
 
 export const pocsagMethods = {
@@ -108,6 +135,69 @@ export const pocsagMethods = {
 		if (!this.pocsagStatus) this.pocsagStatus = [];
 		this.pocsagStatus[vfoIndex] = status;
 	},
+	/** Decode-GSC toggle. Applies the same NFM-paging-friendly RX defaults as
+	 * POCSAG on enable (lowpass off, bandwidth >= 12500), left as-is on disable. */
+	toggleGsc(this: AppInstance, i: number) {
+		const vfo = this.vfos[i];
+		if (vfo.gsc) {
+			vfo.lowPass = false;
+			if (vfo.bandwidth < 12500) vfo.bandwidth = 12500;
+		}
+		this.updateBackendVfoParams(i);
+	},
+	_onGscStatus(this: AppInstance, vfoIndex: number, _freqMhz: number, status: GSCStatus) {
+		if (!this.gscStatus) this.gscStatus = [];
+		this.gscStatus[vfoIndex] = status;
+	},
+	_onGscMessage(this: AppInstance, vfoIndex: number, freqMhz: number, msg: GSCMessage) {
+		const time = new Date().toLocaleTimeString();
+		const freq = freqMhz ? this.formatFreq(freqMhz) + ' MHz' : '';
+		this.pager.log.push({
+			protocol: 'gsc',
+			time,
+			freq,
+			vfoIndex,
+			capcode: formatGscAddress(msg.address),
+			type: msg.type,
+			text: msg.text,
+			charStatus: msg.charStatus ?? [],
+			errorCount: msg.errorCount,
+			uncorrectableCount: msg.uncorrectableCount,
+			voiceEvent: msg.voiceEvent,
+			voiceEndReason: msg.voiceEndReason,
+		});
+		if (msg.voiceEvent) this._gscAutoListen(vfoIndex, msg.voiceEvent);
+		Promise.resolve(
+			this.$nextTick(() => {
+				const el = this.$refs.pagerBody;
+				if (el) el.scrollTop = el.scrollHeight;
+			}),
+		).catch((error: unknown) => console.error(error));
+	},
+	/** On a GSC voice page, if the VFO has auto-listen enabled, unmute and open
+	 * squelch for the announcement, restoring the prior state when it ends. */
+	_gscAutoListen(this: AppInstance, vfoIndex: number, event: 'start' | 'stop') {
+		const vfo = this.vfos[vfoIndex];
+		if (!vfo || !vfo.gscAutoListen) return;
+		if (event === 'start') {
+			this._gscPriorMute.set(vfoIndex, { enabled: vfo.enabled, squelchEnabled: vfo.squelchEnabled });
+			if (!vfo.enabled) {
+				vfo.enabled = true;
+				this.toggleVfoCheckbox(vfoIndex);
+			}
+			vfo.squelchEnabled = false;
+		} else {
+			const prior = this._gscPriorMute.get(vfoIndex);
+			if (prior) {
+				vfo.squelchEnabled = prior.squelchEnabled;
+				if (vfo.enabled !== prior.enabled) {
+					vfo.enabled = prior.enabled;
+					this.toggleVfoCheckbox(vfoIndex);
+				}
+				this._gscPriorMute.delete(vfoIndex);
+			}
+		}
+	},
 	_onPocsagMessage(this: AppInstance, vfoIndex: number, freqMhz: number, msg: POCSAGMessage) {
 		const time = new Date().toLocaleTimeString();
 		const freq = freqMhz ? this.formatFreq(freqMhz) + ' MHz' : '';
@@ -162,10 +252,7 @@ export const pocsagMethods = {
 		this.pager.log = [];
 	},
 	exportPager(this: AppInstance) {
-		const lines = this.pager.log.map(
-			(e) =>
-				`[${e.time}] ${e.protocol.toUpperCase()}  ${e.freq}  CAP:${e.capcode}  F:${['A', 'B', 'C', 'D'][e.func ?? -1] || '?'}  TYPE:${e.type}  ${e.text ? pocsagDisplayText(e.text) : '(tone)'}${e.alt && e.alt.text ? '  (' + e.alt.type + ': ' + pocsagDisplayText(e.alt.text) + ')' : ''}${e.detectDebug ? '  [' + e.detectDebug + ']' : ''}`,
-		);
+		const lines = this.pager.log.map((e) => formatPagerExportLine(e));
 		const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');

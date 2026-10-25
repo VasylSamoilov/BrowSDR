@@ -186,6 +186,7 @@ function needsIq(params: VfoParams): boolean {
 	return (
 		params.enabled ||
 		params.pocsag ||
+		params.gsc === true ||
 		(params.rds && params.mode === 'wfm') ||
 		params.rtl433 === true ||
 		params.adsb === true ||

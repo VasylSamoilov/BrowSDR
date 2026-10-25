@@ -91,6 +91,7 @@ export const vfoMethods = {
 				pocsagCharset: vfo.pocsagCharset ? { ...vfo.pocsagCharset } : undefined,
 				pocsagMode: vfo.pocsagMode,
 				pocsagSecondGuess: vfo.pocsagSecondGuess,
+				gsc: vfo.gsc,
 				adsb: vfo.adsb && inBandwidth,
 				ais: vfo.ais && inBandwidth,
 				radiosonde: vfo.radiosonde && inBandwidth,

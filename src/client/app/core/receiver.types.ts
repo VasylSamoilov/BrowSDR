@@ -19,6 +19,7 @@ import type { Vfo } from './types';
 import type { WorkspaceInstance } from '@/app/workspace/types';
 import type { WhisperMessage } from '@/transcription/types';
 import type { RDSMessage, POCSAGMessage, POCSAGStatus, Rtl433Protocol, Rtl433Message } from '@/worker/decoders/types';
+import type { GSCMessage, GSCStatus } from '@/worker/decoders/types';
 import type { PagerLogEntry } from '@/app/decoders/types';
 import type { PagerProtocol } from '@/worker/decoders/charsets';
 import type { DSDStatus } from '@/worker/decoders/dsd/types';
@@ -183,6 +184,13 @@ export interface ReceiverMethods {
 	_onPocsagMessage(vfoIndex: number, freqMhz: number, msg: POCSAGMessage): void;
 	pocsagSegments(entry: PagerLogEntry): Array<{ text: string; status: number }>;
 	_onPocsagStatus(vfoIndex: number, freqMhz: number, status: POCSAGStatus): void;
+	toggleGsc(i: number): void;
+	_onGscMessage(vfoIndex: number, freqMhz: number, msg: GSCMessage): void;
+	_onGscStatus(vfoIndex: number, freqMhz: number, status: GSCStatus): void;
+	/** Unmute/open squelch on a GSC voice page and restore it when the page ends. */
+	_gscAutoListen(vfoIndex: number, event: 'start' | 'stop'): void;
+	/** Saved mute/squelch state per VFO while auto-listen holds the channel open. */
+	_gscPriorMute: Map<number, { enabled: boolean; squelchEnabled: boolean }>;
 	clearPager(): void;
 	exportPager(): void;
 	_onDsdStatus(vfoIndex: number, status: DSDStatus): void;

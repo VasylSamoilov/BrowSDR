@@ -108,6 +108,29 @@
 			</span>
 		</div>
 
+		<!-- GSC (Golay) decode toggle (NFM). Default-only: no charset selector. -->
+		<UiFormRow class="full-checkbox-row" v-if="vfo.mode === 'nfm'">
+			<UiCheckbox v-model="vfo.gsc" label="Decode GSC" @change="receiver.toggleGsc(i)"></UiCheckbox>
+		</UiFormRow>
+		<UiFormRow class="full-checkbox-row" v-if="vfo.mode === 'nfm' && vfo.gsc">
+			<UiCheckbox v-model="vfo.gscAutoListen" label="Auto-listen to voice pages"
+				title="On a GSC voice page, unmute and open squelch to hear the announcement, then restore when it ends"></UiCheckbox>
+		</UiFormRow>
+
+		<!-- GSC live link status: sync + BER -->
+		<div class="pocsag-status-panel" v-if="vfo.mode === 'nfm' && vfo.gsc"
+			style="padding:4px 8px;font-size:11px;font-family:monospace;line-height:1.6;background:rgba(0,0,0,0.3);border-radius:4px;margin:4px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+			<span style="display:flex;align-items:center;gap:6px;">
+				<span :style="{ width:'8px',height:'8px',borderRadius:'50%',display:'inline-block',flexShrink:0,background: receiver.gscStatus[i]?.synced ? '#44cc44' : '#666' }"></span>
+				<span style="font-weight:700;color:#fff;">GSC {{ receiver.gscStatus[i]?.synced ? 'SYNC' : 'SEARCHING' }}</span>
+			</span>
+			<span v-if="receiver.gscStatus[i]?.baud" style="color:#aaa;">{{ receiver.gscStatus[i].baud }} Bd</span>
+			<span v-if="receiver.gscStatus[i]?.ber != null"
+				:style="{ color: receiver.gscStatus[i].ber < 0.01 ? '#44cc44' : (receiver.gscStatus[i].ber < 0.05 ? '#ffcc44' : '#ff6644') }">
+				BER {{ (receiver.gscStatus[i].ber * 100).toFixed(1) }}%
+			</span>
+		</div>
+
 		<!-- DSD status display (SDR++ Brown style) -->
 		<div class="dsd-status-panel" v-if="vfo.mode === 'dsd'" style="padding:4px 8px;font-size:11px;font-family:monospace;line-height:1.6;background:rgba(0,0,0,0.3);border-radius:4px;margin:4px 0;">
 			<!-- Mode line -->

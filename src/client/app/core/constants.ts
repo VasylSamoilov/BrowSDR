@@ -25,6 +25,8 @@ export const makeDefaultVfo = (freq = 100.0) => ({
 	pocsagCharset: { vendor: 'generic', model: 'generic', codepage: 'ascii' },
 	pocsagMode: 'auto' as PocsagMode,
 	pocsagSecondGuess: false,
+	gsc: false,
+	gscAutoListen: false,
 	adsb: false,
 	ais: false,
 	radiosonde: false,

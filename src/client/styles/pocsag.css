@@ -233,6 +233,10 @@
 	background: #4a148c;
 	color: #ce93d8;
 }
+.pocsag-type-voice {
+	background: #01579b;
+	color: #81d4fa;
+}
 
 .pocsag-baud {
 	color: #666;

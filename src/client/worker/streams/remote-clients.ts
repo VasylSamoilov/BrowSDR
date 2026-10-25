@@ -3,6 +3,8 @@ import type {
 	AudioCallback,
 	PocsagCallback,
 	PocsagStatusCallback,
+	GscCallback,
+	GscStatusCallback,
 	RdsCallback,
 	Rtl433Callback,
 	AdsbCallback,
@@ -37,6 +39,7 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 import type { VfoParams, RemoteClientState } from '@/worker/runtime/types';
 import { AUDIO_RATE } from '@/worker/runtime/constants';
 import { POCSAGDecoder } from '@/worker/decoders/pocsag';
+import { GSCDecoder } from '@/worker/decoders/golay';
 import { ensureWasmInitialized, init } from '@/worker/runtime/wasm-init';
 import type { Backend } from '@/worker/runtime/backend';
 import { AUDIO_QUEUE_CAPACITY, appendPcm, mixLength } from './audio-queue';
@@ -71,6 +74,14 @@ export function setRemoteHostPocsagCallback(this: Backend, callback: HostCallbac
 
 export function setRemoteHostPocsagStatusCallback(this: Backend, callback: HostCallback<Parameters<PocsagStatusCallback>>): void {
 	this._remoteHostPocsagStatusCb = callback;
+}
+
+export function setRemoteHostGscCallback(this: Backend, callback: HostCallback<Parameters<GscCallback>>): void {
+	this._remoteHostGscCb = callback;
+}
+
+export function setRemoteHostGscStatusCallback(this: Backend, callback: HostCallback<Parameters<GscStatusCallback>>): void {
+	this._remoteHostGscStatusCb = callback;
 }
 
 export function setRemoteHostRdsCallback(this: Backend, callback: HostCallback<Parameters<RdsCallback>>): void {
@@ -120,6 +131,7 @@ export function _getOrCreateClientState(this: Backend, clientId: string): Remote
 			audioQueues: [],
 			mixBuf: null,
 			pocsagDecoders: [],
+			gscDecoders: [],
 			rdsDecoders: [],
 			squelchOpen: [],
 		});
@@ -271,6 +283,7 @@ export function removeRemoteVfo(this: Backend, clientId: string, index: number):
 	state.params.splice(index, 1);
 	state.audioQueues.splice(index, 1);
 	state.pocsagDecoders.splice(index, 1);
+	if (state.gscDecoders) state.gscDecoders.splice(index, 1);
 	state.rdsDecoders.splice(index, 1);
 	state.squelchOpen.splice(index, 1);
 
@@ -304,30 +317,74 @@ function ensureRemotePocsagDecoder(
 	return dec;
 }
 
-export function _queueRemoteAudio(this: Backend, clientId: string, index: number, samples: Float32Array, channels: 1 | 2 = 1): void {
-	const state = this._remoteClients && this._remoteClients.get(clientId);
-	if (!state) return;
-	const entry = state.audioQueues[index];
-	if (!entry) return;
+function ensureRemoteGscDecoder(
+	cb: HostCallback<Parameters<GscCallback>>,
+	state: RemoteClientState,
+	index: number,
+	params: VfoParams,
+	clientId: string,
+): GSCDecoder {
+	if (!state.gscDecoders) state.gscDecoders = [];
+	let dec = state.gscDecoders[index];
+	if (!dec) {
+		dec = new GSCDecoder(AUDIO_RATE, (gmsg) => cb(clientId, index, params.freq, gmsg));
+		state.gscDecoders[index] = dec;
+	}
+	return dec;
+}
 
-	// Run POCSAG decoding on the raw audio before mixing
-	const params = state.params[index];
-	if (this._remoteHostPocsagCb && params && params.pocsag && params.mode === 'nfm') {
-		const dec = ensureRemotePocsagDecoder(this._remoteHostPocsagCb, state, index, params, clientId);
+/** Run POCSAG + GSC decoding for one remote client VFO, forwarding messages and
+ * throttled status to that client. Nulls a decoder when its protocol disables. */
+function decodeRemotePager(
+	backend: Backend,
+	state: RemoteClientState,
+	index: number,
+	params: VfoParams,
+	clientId: string,
+	samples: Float32Array,
+): void {
+	if (backend._remoteHostPocsagCb && params.pocsag && params.mode === 'nfm') {
+		const dec = ensureRemotePocsagDecoder(backend._remoteHostPocsagCb, state, index, params, clientId);
 		dec.process(samples);
-		// Emit a throttled link-status snapshot to the remote client.
-		if (this._remoteHostPocsagStatusCb) {
+		if (backend._remoteHostPocsagStatusCb) {
 			if (!state.pocsagStatusAt) state.pocsagStatusAt = [];
 			const now = Date.now();
 			if (state.pocsagStatusAt[index] == null || now - state.pocsagStatusAt[index] >= 500) {
 				state.pocsagStatusAt[index] = now;
-				this._remoteHostPocsagStatusCb(clientId, index, params.freq, dec.getStatus());
+				backend._remoteHostPocsagStatusCb(clientId, index, params.freq, dec.getStatus());
 			}
 		}
 	} else if (state.pocsagDecoders[index]) {
 		state.pocsagDecoders[index] = null;
 		if (state.pocsagStatusAt) state.pocsagStatusAt[index] = undefined as unknown as number;
 	}
+
+	if (backend._remoteHostGscCb && params.gsc && params.mode === 'nfm') {
+		const gdec = ensureRemoteGscDecoder(backend._remoteHostGscCb, state, index, params, clientId);
+		gdec.process(samples);
+		if (backend._remoteHostGscStatusCb) {
+			if (!state.gscStatusAt) state.gscStatusAt = [];
+			const now = Date.now();
+			if (state.gscStatusAt[index] == null || now - state.gscStatusAt[index] >= 500) {
+				state.gscStatusAt[index] = now;
+				backend._remoteHostGscStatusCb(clientId, index, params.freq, gdec.getStatus());
+			}
+		}
+	} else if (state.gscDecoders && state.gscDecoders[index]) {
+		state.gscDecoders[index] = null;
+		if (state.gscStatusAt) state.gscStatusAt[index] = undefined as unknown as number;
+	}
+}
+
+export function _queueRemoteAudio(this: Backend, clientId: string, index: number, samples: Float32Array, channels: 1 | 2 = 1): void {
+	const state = this._remoteClients && this._remoteClients.get(clientId);
+	if (!state) return;
+	const entry = state.audioQueues[index];
+	if (!entry) return;
+
+	// Run POCSAG + GSC decoding on the raw audio before mixing.
+	const params = state.params[index];
+	if (params) decodeRemotePager(this, state, index, params, clientId, samples);
 
 	// Muted VFOs still decode metadata, but their audio must not accumulate.
 	if (!params?.enabled) {

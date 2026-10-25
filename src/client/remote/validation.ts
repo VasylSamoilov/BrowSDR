@@ -73,6 +73,22 @@ const validators: Record<string, (value: Record<string, unknown>) => boolean> = 
 		(value.status.baud === null || typeof value.status.baud === 'number') &&
 		(value.status.ber === null || typeof value.status.ber === 'number') &&
 		typeof value.status.codewords === 'number',
+	gsc: (value: Record<string, unknown>) =>
+		numbers(value, ['vfoIndex', 'freq']) &&
+		isRecord(value.msg) &&
+		typeof value.msg.text === 'string' &&
+		typeof value.msg.address === 'string' &&
+		numbers(value.msg, ['addressNumber', 'errorCount', 'uncorrectableCount', 'preambleIndex']) &&
+		['alpha', 'numeric', 'tone', 'voice'].includes(String(value.msg.type)) &&
+		(value.msg.charStatus === undefined ||
+			(Array.isArray(value.msg.charStatus) && value.msg.charStatus.every((s: unknown) => typeof s === 'number'))),
+	gsc_status: (value: Record<string, unknown>) =>
+		numbers(value, ['vfoIndex', 'freq']) &&
+		isRecord(value.status) &&
+		typeof value.status.synced === 'boolean' &&
+		(value.status.baud === null || typeof value.status.baud === 'number') &&
+		(value.status.ber === null || typeof value.status.ber === 'number') &&
+		typeof value.status.codewords === 'number',
 	rds: (value: Record<string, unknown>) => validIndex(value.vfoIndex) && numbers(value, ['freq']) && validRdsMessage(value.msg),
 };
 
@@ -117,7 +133,7 @@ function validVfoParams(value: unknown): boolean {
 		isRecord(value) &&
 		typedFields(value, ['mode', 'deEmphasis', 'rdsRegion'], 'string') &&
 		typedFields(value, ['enabled', 'squelchEnabled', 'lowPass', 'highPass', 'pocsag', 'rds'], 'boolean') &&
-		optionalFields(value, ['rtl433', 'audioMuted', 'adsb', 'ais', 'radiosonde', 'ble', 'acars'], 'boolean') &&
+		optionalFields(value, ['rtl433', 'audioMuted', 'adsb', 'ais', 'radiosonde', 'ble', 'acars', 'gsc'], 'boolean') &&
 		optionalFields(value, ['rtl433SampleRate'], 'number') &&
 		optionalFields(value, ['rtl433Protocols'], 'string') &&
 		(value.pocsagCharset === undefined ||

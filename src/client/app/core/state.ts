@@ -4,6 +4,7 @@ import type { RadiosondeStatus, Radiosonde } from '@/worker/decoders/radiosonde/
 import type { AcarsStatus, AcarsRecord } from '@/worker/decoders/acars/types';
 import type { AdsbStatus, Aircraft } from '@/worker/decoders/adsb/types';
 import type { POCSAGStatus } from '@/worker/decoders/types';
+import type { GSCStatus } from '@/worker/decoders/types';
 import type { PagerProtocol } from '@/worker/decoders/charsets';
 import type { RdsLogEntry, Rtl433LogEntry, PagerLogEntry, RdsStations } from '@/app/decoders/types';
 import type { WhisperLogEntry } from '@/app/decoders/whisper.types';
@@ -154,6 +155,9 @@ function createDecoderAndBookmarkState() {
 		// Per-VFO POCSAG link status (sync/baud/polarity/BER). Protocol-specific
 		// status strips stay per-protocol; this one is POCSAG's.
 		pocsagStatus: [] as Array<POCSAGStatus | null>,
+		// Per-VFO GSC link status (sync/baud/BER).
+		gscStatus: [] as Array<GSCStatus | null>,
+		_gscPriorMute: new Map<number, { enabled: boolean; squelchEnabled: boolean }>(),
 		dsdStatus: [] as Array<DSDStatus | null>,
 		ble: {
 			panelOpen: false,

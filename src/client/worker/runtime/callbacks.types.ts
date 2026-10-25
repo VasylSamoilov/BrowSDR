@@ -4,7 +4,7 @@ import type { RadiosondeMessage } from '@/worker/decoders/radiosonde/types';
 import type { AcarsMessage } from '@/worker/decoders/acars/types';
 import type { AdsbMessage } from '@/worker/decoders/adsb/types';
 import type { DSDStatus } from '@/worker/decoders/dsd/types';
-import type { Rtl433Message, POCSAGMessage, POCSAGStatus, RDSMessage } from '@/worker/decoders/types';
+import type { Rtl433Message, POCSAGMessage, POCSAGStatus, RDSMessage, GSCMessage, GSCStatus } from '@/worker/decoders/types';
 import type { PerfReport } from './types';
 
 export type SamplesCallback = (samples: Float32Array) => void;
@@ -13,6 +13,16 @@ export type WhisperCallback = (index: number, freq: number, samples: Float32Arra
 export type DecoderCallback<T> = (index: number, freq: number, message: T) => void;
 export type PocsagCallback = DecoderCallback<POCSAGMessage>;
 export type PocsagStatusCallback = (index: number, freq: number, status: POCSAGStatus) => void;
+export type GscCallback = DecoderCallback<GSCMessage>;
+export type GscStatusCallback = (index: number, freq: number, status: GSCStatus) => void;
+/** Bundle of the pager-decoder callbacks (POCSAG + GSC), passed together so
+ * adding a protocol does not grow every stream signature. */
+export interface PagerCallbacks {
+	pocsag: PocsagCallback | null;
+	pocsagStatus: PocsagStatusCallback | null;
+	gsc: GscCallback | null;
+	gscStatus: GscStatusCallback | null;
+}
 export type RdsCallback = DecoderCallback<RDSMessage>;
 export type BleCallback = DecoderCallback<BleMessage>;
 export type AisCallback = DecoderCallback<AisMessage>;

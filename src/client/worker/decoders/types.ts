@@ -1,3 +1,48 @@
+
+/** Per-character decode confidence for GSC, parallel to a message's text. */
+export const GSC_CHAR_OK = 0;
+export const GSC_CHAR_CORRECTED = 1;
+export const GSC_CHAR_UNCORRECTABLE = 2;
+
+/** A decoded GSC (Golay Sequential Code) message. GSC has a single Table VII
+ * character set, so there is no charset/codepage field. */
+export interface GSCMessage {
+	protocol: 'gsc';
+	/** 7-digit functional address: I G1 G0 A2 A1 A0 suffix. */
+	address: string;
+	/** Address number 1-4 (derived from the function bits). */
+	addressNumber: number;
+	type: 'alpha' | 'numeric' | 'tone' | 'voice';
+	text: string;
+	/** Per-character confidence parallel to text: 0 ok, 1 corrected, 2 bad. */
+	charStatus: number[];
+	/** Corrected error count (Golay/BCH corrections applied). */
+	errorCount: number;
+	/** Uncorrectable codeword count (FEC decode failed). */
+	uncorrectableCount: number;
+	/** Preamble index 0-9. */
+	preambleIndex: number;
+	/** For voice pages: 'start' when the voice alert batch is decoded, 'stop'
+	 * when the transmission ends. Undefined for data/tone pages. */
+	voiceEvent?: 'start' | 'stop';
+	/** Why a voice page ended (on the 'stop' event): the activation (stop) code,
+	 * a new preamble, silence (TX stopped), or the recording timeout. */
+	voiceEndReason?: 'activation' | 'preamble' | 'silence' | 'timeout';
+}
+
+/** The set of reasons a GSC voice page can end. */
+export type GSCVoiceEndReason = 'activation' | 'preamble' | 'silence' | 'timeout';
+
+/** Live link status for a GSC VFO (sync / bit-error rate). */
+export interface GSCStatus {
+	synced: boolean;
+	baud: number | null;
+	ber: number | null;
+	codewords: number;
+}
+
+/** GSC receiver sync state. */
+export type GSCRxState = 'idle' | 'preamble' | 'collect' | 'voice';
 export type Rtl433Message =
 	{ type: 'rtl433_event'; freq: number; event: Record<string, unknown> } | { type: 'rtl433_status'; freq?: number; status: Rtl433Status };
 

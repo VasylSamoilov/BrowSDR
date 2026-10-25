@@ -11,6 +11,7 @@ export function planSharedBands(sampleRate: number, centerFreq: number, params: 
 			({ value }) =>
 				value.enabled ||
 				value.pocsag ||
+				value.gsc ||
 				value.adsb ||
 				value.ais ||
 				value.radiosonde ||

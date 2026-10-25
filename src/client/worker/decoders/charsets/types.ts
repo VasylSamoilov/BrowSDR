@@ -7,8 +7,10 @@
  * per code); TX-encode aliases are not represented here.
  */
 
-/** Paging protocols that can own codepages. */
-export type PagerProtocol = 'pocsag' | 'flex';
+/** Paging protocols that can own codepages. GSC has no codepages (single Table
+ * VII alphabet) but is still a pager protocol, so it appears here with an empty
+ * registry branch. */
+export type PagerProtocol = 'pocsag' | 'gsc' | 'flex';
 
 /**
  * A codepage: code → display glyph. Index is the character code (0..N-1 where

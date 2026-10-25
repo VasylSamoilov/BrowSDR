@@ -10,23 +10,27 @@ import { POCSAG_CHARSETS, POCSAG_TABLES } from './pocsag';
 
 export const CHARSETS: CharsetRegistry = {
 	pocsag: POCSAG_CHARSETS,
+	gsc: [], // GSC is default-only (single Table VII alphabet); no codepages.
 	flex: [],
 };
 
 const TABLES: Record<PagerProtocol, CharsetTables> = {
 	pocsag: POCSAG_TABLES,
+	gsc: {},
 	flex: {},
 };
 
 /** Per-protocol default charset key. Each protocol's 'generic/generic' identity. */
 const DEFAULT_CHARSET: Record<PagerProtocol, CharsetKey> = {
 	pocsag: { vendor: 'generic', model: 'generic', codepage: 'ascii' },
+	gsc: { vendor: 'generic', model: 'generic', codepage: 'ascii' },
 	flex: { vendor: 'generic', model: 'generic', codepage: 'ascii' },
 };
 
 /** Fallback table id per protocol, used when a key resolves to nothing. */
 const DEFAULT_TABLE_ID: Record<PagerProtocol, string> = {
 	pocsag: 'generic-ascii',
+	gsc: 'generic-ascii',
 	flex: 'generic-ascii',
 };
 

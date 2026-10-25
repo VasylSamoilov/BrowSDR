@@ -663,6 +663,7 @@ function needsVfoInput(params: VfoParams): boolean {
 	return (
 		params.enabled ||
 		params.pocsag ||
+		params.gsc === true ||
 		(params.rds && params.mode === 'wfm') ||
 		params.rtl433 === true ||
 		[params.adsb, params.ais, params.radiosonde, params.ble, params.acars].some((enabled) => enabled === true)
@@ -674,5 +675,5 @@ function configurePacketDecoders(params: VfoParams, center: number): void {
 }
 
 function decodeVfoAudio(length: number, params: VfoParams): Float32Array | null {
-	return params.enabled || params.pocsag || params.rds ? processVfoAudio(length, params) : null;
+	return params.enabled || params.pocsag || params.gsc || params.rds ? processVfoAudio(length, params) : null;
 }

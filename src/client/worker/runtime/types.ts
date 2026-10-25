@@ -1,4 +1,5 @@
 import type { POCSAGDecoder } from '@/worker/decoders/pocsag';
+import type { GSCDecoder } from '@/worker/decoders/golay';
 import type { RDSDecoder } from '@/worker/decoders/rds';
 import type { CharsetKey } from '@/worker/decoders/charsets';
 import type { PocsagMode } from '@/worker/decoders/types';
@@ -51,6 +52,7 @@ export interface VfoParams {
 	pocsagCharset?: CharsetKey;
 	pocsagMode?: PocsagMode;
 	pocsagSecondGuess?: boolean;
+	gsc?: boolean;
 	rds: boolean;
 	rdsRegion: string;
 }
@@ -63,6 +65,10 @@ export interface VfoState {
 	pocsagStatusAt?: number;
 	/** Charset key currently applied to pocsagDecoder, to detect live changes. */
 	pocsagCharset?: CharsetKey;
+	/** GSC decoder instance (when params.gsc). */
+	gscDecoder?: GSCDecoder | null;
+	/** Last time (ms) a GSC status snapshot was emitted, for throttling. */
+	gscStatusAt?: number;
 	rdsDecoder: RDSDecoder | null;
 	audioQueue: Float32Array;
 	audioQueueLen: number;
@@ -152,6 +158,10 @@ export interface RemoteClientState {
 	pocsagStatusAt?: number[];
 	/** Per-index charset key currently applied, to detect live changes. */
 	pocsagCharsets?: Array<CharsetKey | undefined>;
+	/** Per-index GSC decoder instances. */
+	gscDecoders?: Array<GSCDecoder | null>;
+	/** Per-index last GSC status emission time (ms) for throttling. */
+	gscStatusAt?: number[];
 	rdsDecoders: Array<RDSDecoder | null>;
 	squelchOpen: boolean[];
 }

@@ -32,6 +32,11 @@ export interface Vfo {
 	pocsagMode?: PocsagMode;
 	/** Show the runner-up interpretation (auto mode) dimmed; default false. */
 	pocsagSecondGuess?: boolean;
+	/** Decode GSC (Golay Sequential Code) on this NFM VFO. */
+	gsc?: boolean;
+	/** When true, a GSC voice page auto-unmutes and opens squelch so the user
+	 * hears the announcement, restoring the prior state when it ends. */
+	gscAutoListen?: boolean;
 	displayFreq: string;
 	focused: boolean;
 }

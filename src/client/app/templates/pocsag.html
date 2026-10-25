@@ -25,9 +25,14 @@
 				<span class="pocsag-freq" :style="entry.vfoIndex != null ? { color: vfoColor(entry.vfoIndex) } : {}">{{ entry.freq }}</span>
 				<span class="pocsag-capcode" title="Capcode (pager address)">CAP:{{ entry.capcode }}</span>
 				<span class="pocsag-func" v-if="entry.func != null" title="Function / sub-address (A-D)" style="color:#b39ddb;flex-shrink:0;font-size:10px;">F:{{ ['A','B','C','D'][entry.func] || '?' }}</span>
-				<span class="pocsag-type" :class="'pocsag-type-' + entry.type">{{ entry.type.toUpperCase() }}</span>
+				<span class="pocsag-type" :class="'pocsag-type-' + (entry.voiceEvent ? 'voice' : entry.type)">{{ entry.type.toUpperCase() }}</span>
 				<span class="pocsag-baud" v-if="entry.baud">{{ entry.baud }}Bd</span>
-				<span class="pocsag-text" v-if="entry.text"><span v-for="(seg, si) in pocsagSegments(entry)" :key="si"
+				<span class="pocsag-check" v-if="entry.uncorrectableCount" title="Uncorrectable codewords (FEC decode failed)" style="flex-shrink:0;font-size:9px;font-weight:700;color:#ff5252;">✗{{ entry.uncorrectableCount }}</span>
+				<span class="pocsag-check" v-else-if="entry.errorCount" title="FEC-corrected codewords (checksum OK)" style="flex-shrink:0;font-size:9px;font-weight:700;color:#ffca28;">✓~{{ entry.errorCount }}</span>
+				<span class="pocsag-check" v-else-if="entry.protocol === 'gsc' && (entry.type === 'alpha' || entry.type === 'numeric')" title="Checksum OK, no errors" style="flex-shrink:0;font-size:9px;font-weight:700;color:#66bb6a;">✓</span>
+				<span class="pocsag-voice" v-if="entry.voiceEvent === 'start'" style="flex:1;min-width:0;color:#4fc3f7;font-weight:700;">▶ VOICE START — listen</span>
+				<span class="pocsag-voice" v-else-if="entry.voiceEvent === 'stop'" style="flex:1;min-width:0;color:#4fc3f7;">■ VOICE END<span v-if="entry.voiceEndReason" style="opacity:0.7;font-size:10px;">&nbsp;({{ entry.voiceEndReason }})</span></span>
+				<span class="pocsag-text" v-else-if="entry.text"><span v-for="(seg, si) in pocsagSegments(entry)" :key="si"
 					:class="'pocsag-seg-' + seg.status">{{ seg.text }}</span></span>
 				<span class="pocsag-text pocsag-tone" v-else>(tone only)</span>
 				<span class="pocsag-alt" v-if="entry.alt && entry.alt.text" title="Second guess (runner-up interpretation)">({{ entry.alt.type }}: {{ pocsagDisplayText(entry.alt.text) }})</span>
