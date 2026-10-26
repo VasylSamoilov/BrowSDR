@@ -11,7 +11,7 @@
 
 import { FlexFrontend, RX_STATE_SYNC1, RX_STATE_FIW, RX_STATE_SYNC2, RX_STATE_DATA } from './frontend';
 import { FlexFrameDecoder } from './frame';
-import { formatFlexTime } from './flextime';
+import { formatFlexTime, formatFlexTimeOnly } from './flextime';
 import type { FlexMode, FlexFiw, FlexPhaseData, FlexMessage } from './types';
 import type { FlexStatus, FlexRxStage } from './types';
 import type { CharsetKey } from '@/worker/decoders/charsets';
@@ -134,22 +134,7 @@ export class FlexDecoder {
 			countryCode: net.countryCode,
 			tmf: net.tmf,
 			date: net.date,
-			time: (() => {
-				// In standard mode, extrapolate time per frame (each frame = 1.875s).
-				// net.clock holds the confirmed TIME vote; use it to compute the
-				// current frame's wall time rather than the static voted string.
-				const c = net.clock;
-				if (!c || !fiw) return net.time;
-				const pad2 = (n: number) => String(n).padStart(2, '0');
-				let baseSec = c.min * 60 + c.coarseSec * 7.5;
-				if (c.extSec !== null) baseSec += c.extSec * 0.9375;
-				if (c.standardMode) baseSec += fiw.frame * 1.875;
-				let outMin = Math.floor(baseSec / 60);
-				const outSec = baseSec - outMin * 60;
-				let outHour = c.hour;
-				if (outMin >= 60) { outMin -= 60; outHour = (outHour + 1) % 24; }
-				return `${pad2(outHour)}:${pad2(outMin)}:${pad2(Math.trunc(outSec))}`;
-			})(),
+			time: fiw ? formatFlexTimeOnly(net, fiw.frame) : net.time,
 			tzOffsetMin: net.tzOffsetMin,
 			dst: net.dst,
 			groupSlots: this.frames

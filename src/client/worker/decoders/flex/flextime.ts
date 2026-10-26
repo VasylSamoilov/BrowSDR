@@ -358,6 +358,22 @@ function expireFlexTime(v: FlexTimeVote, net: FlexNetInfo, frameMono: number): v
  * whole hours ("+2h") or hours+minutes ("+5h30m") with a trailing " DST" when
  * daylight saving is active. Returns null when no component is available.
  */
+/** Format just the time component (HH:MM:SS) for the current frame,
+ * extrapolating from the confirmed TIME vote in standard mode.
+ * Returns null when no confirmed clock is available. */
+export function formatFlexTimeOnly(net: FlexNetInfo, frame: number): string | null {
+	const c = net.clock;
+	if (!c) return net.time;
+	let baseSec = c.min * 60 + c.coarseSec * 7.5;
+	if (c.extSec !== null) baseSec += c.extSec * 0.9375;
+	if (c.standardMode) baseSec += frame * 1.875;
+	let outMin = Math.floor(baseSec / 60);
+	const outSec = baseSec - outMin * 60;
+	let outHour = c.hour;
+	if (outMin >= 60) { outMin -= 60; outHour = (outHour + 1) % 24; }
+	return `${pad2(outHour)}:${pad2(outMin)}:${pad2(Math.trunc(outSec))}`;
+}
+
 export function formatFlexTime(net: FlexNetInfo, frame: number): string | null {
 	const parts: string[] = [];
 	if (net.date) parts.push(net.date);
