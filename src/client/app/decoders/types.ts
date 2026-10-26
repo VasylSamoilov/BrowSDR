@@ -20,15 +20,19 @@ export interface PagerLogEntry {
 	vfoIndex: number;
 	capcode: string;
 	type: string;
-	/** Function sub-address 0-3 (shown as A-D). POCSAG-specific; optional. */
-	func?: number;
 	text: string;
 	/** Per-character decode status parallel to text: 0 ok, 1 corrected, 2 bad. */
 	charStatus?: number[];
+
+	// -- POCSAG-specific --
+	/** Function sub-address 0-3 (shown as A-D). POCSAG-specific; optional. */
+	func?: number;
 	baud?: number;
 	detectDebug?: string;
 	/** Runner-up interpretation (second guess), shown dimmed when enabled. */
 	alt?: { type: 'alpha' | 'numeric'; text: string };
+
+	// -- GSC-specific --
 	/** GSC: corrected (FEC-repaired) codeword count for the message. */
 	errorCount?: number;
 	/** GSC: uncorrectable codeword count (decode failed) for the message. */
@@ -37,6 +41,8 @@ export interface PagerLogEntry {
 	voiceEvent?: 'start' | 'stop';
 	/** GSC: why the voice page ended (on a 'stop' event). */
 	voiceEndReason?: 'activation' | 'preamble' | 'silence' | 'timeout';
+
+	// -- FLEX-specific --
 	/** FLEX: decoded phase 'A'..'D'. */
 	phase?: string;
 	/** FLEX: frame cycle number (0-14) this page was received in. */
@@ -81,9 +87,6 @@ export interface PagerLogEntry {
 	 * the network clock has not been confirmed. Shown as a per-row tag. */
 	flexTime?: string | null;
 }
-
-/** @deprecated Use PagerLogEntry. Kept as an alias during migration. */
-export type PocsagLogEntry = PagerLogEntry;
 
 export interface Rtl433LogEntry {
 	time: string;
