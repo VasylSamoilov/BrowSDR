@@ -405,23 +405,18 @@ export class _POCSAGSingleBaud {
 	/** Between-batch FSC search (locked). Re-locks on sync, unlocks on timeout
 	 * or on a valid non-sync codeword (signal changed).
 	 *
-	 * Ported from osmocom-analog src/pocsag/dsp.c fsk_block_decode: a candidate
-	 * window is accepted as the FSC ONLY when it BCH-corrects to EXACTLY the sync
-	 * word (hamming32(w, SYNC) <= 2 AND pocsag_bch_correct(w) succeeds with the
-	 * result == SYNC). A bare Hamming-distance test is NOT sufficient: one bit
-	 * before the true boundary the window [last data bit | 31 FSC bits] can sit
-	 * within Hamming 2 of the sync word yet NOT be a BCH-valid correction to it.
-	 * Accepting that window re-locks one bit early (resyncBits 31, not 32), which
-	 * shifts the entire following batch by one bit — turning IDLE (0x7a89c197)
-	 * into the phantom 0xf513832e (= IDLE << 1) that BCH then force-"corrects"
-	 * into bogus messages. The BCH-to-exactly-SYNC gate pins the re-lock to the
-	 * true 32-bit boundary. */
+	 * A candidate window is accepted as the FSC only when it BCH-corrects to
+	 * EXACTLY the sync word. A bare Hamming-distance check is not sufficient:
+	 * one bit before the true boundary the window [last data bit | 31 FSC bits]
+	 * can sit within Hamming distance 2 yet NOT be a BCH-valid correction to the
+	 * sync word. Accepting it re-locks one bit early, shifting the entire batch
+	 * by one bit and producing phantom codewords that BCH force-corrects into
+	 * garbage messages. */
 	_fscSearch(): void {
 		this.resyncBits++;
 		const w = this.shiftReg >>> 0;
 
-		// osmocom gate: accept the current-polarity FSC only if the window
-		// BCH-corrects to EXACTLY the sync word (not merely within Hamming 2).
+		// Accept only if BCH correction produces exactly the sync word.
 		const curTarget = this.inverted ? _POCSAGSingleBaud.SYNC_INVERTED : _POCSAGSingleBaud.SYNC_WORD;
 		if (_pocsagHamming(w, curTarget) <= _POCSAGSingleBaud.SYNC_TOLERANCE) {
 			const trial = (this.inverted ? ~w : w) >>> 0;

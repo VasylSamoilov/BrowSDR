@@ -1,7 +1,7 @@
 /**
  * FLEX frame-content decode: turn the four deinterleaved phase buffers of a
- * received frame into addressed messages. A faithful (single-frame) port of
- * the message-extraction path of osmocom src/flex/dsp.c flex_rx_decode_phase.
+ * received frame into addressed messages. Single-frame decode of
+ * a received FLEX frame into addressed messages.
  *
  * Per phase the decoder:
  *   1. BCH-decodes every 32-bit word to its 21-bit info field (with the
@@ -38,7 +38,7 @@ import type { ReasmSlot, FlexNetInfo, GroupEvent, GroupSlot, CapClass, HexHeader
 const FLEX_WORDS_PER_FRAME = 88;
 const BCH_CODE_BITS = 31; // BCH(31,21) codeword length; the BER denominator per word
 
-// Word status (matches osmocom enum flex_word_status; NOT_RECEIVED = 0).
+// Word status codes.
 const WORD_NOT_RECEIVED = 0;
 const WORD_CLEAN = 1;
 const WORD_CORRECTED = 2;
@@ -104,7 +104,7 @@ function wordLost(status: number): boolean {
  * Returns parallel arrays of 21-bit info words, their status, and the per-word
  * errored-bit count (Hamming distance BCH corrected, or a full codeword for an
  * uncorrectable word) for the bit-error-rate estimate. Mirrors the per-word
- * BCH + I&D merge of flex_rx_decode_phase (region-aware safety rule).
+ * BCH + I&D merge (region-aware safety rule).
  */
 function bchDecodePhase(ph: FlexPhaseData): { words: Uint32Array; status: Int8Array; errBits: Uint8Array } {
 	const words = new Uint32Array(FLEX_WORDS_PER_FRAME);
@@ -182,7 +182,7 @@ function vectorLength(viw: number, vecType: number): number {
  * the message Signature, not a character (ARIB 3.8.8.3), so it is captured as
  * rxSig and skipped. Also accumulates sigSum = the running 7-bit sum of every
  * emitted character (ETX excluded), used to validate the signature. Mirrors
- * osmocom dsp.c flex_rx_decode_phase alpha extraction.
+ * Alpha character extraction.
  */
 function extractAlpha(
 	words: Uint32Array,
@@ -263,7 +263,7 @@ function tallyWordErrors(status: Int8Array, errBits: Uint8Array, tally: { errBit
 
 /**
  * Decode one phase buffer into zero or more messages. `phaseName` is 'A'..'D'.
- * Mirrors the address/vector loop of flex_rx_decode_phase (single-frame core).
+ * Address/vector decode loop (single-frame).
  * When numTransmissions > 1 the in-frame subframe copies are best-of combined
  * before the address/vector walk.
  */
@@ -389,7 +389,7 @@ function parseSecureType(words: Uint32Array, status: Int8Array, hdrIdx: number, 
 /**
  * Secure (V=000) sub-type dispatch (header bits 19-20): 00=alpha; 10=binary;
  * 01=vendor; 11=reserved. Only 00 is 7-bit alphanumeric; every other sub-type
- * is dumped as hex (multimon-ng parse_binary). Returns the hex message for a
+ * is decoded as a hex message. Returns the parsed message for a
  * non-alpha secure sub-type, or null to let the alpha path handle it.
  */
 function secureBinaryMessage(
@@ -637,7 +637,7 @@ function decodeHex(
 /**
  * Decode a completed frame's phase buffers into messages. `activePhases` lists
  * the phase-buffer indices to decode (A1:[0], A2/A3:[0,2], A4:[0,1,2,3]).
- * Mirrors flex_rx_decode_data's phase dispatch.
+ * Phase dispatch — decodes active phases for the given air mode.
  *
  * This is the stateless single-frame entry (no multi-transmission combine, no
  * cross-frame reassembly). For those robustness layers use FlexFrameDecoder.
@@ -805,7 +805,7 @@ export class FlexFrameDecoder {
 		const found = this.slots[pol].find((s) => s.capcode === capcode && s.type === type && s.msgNum === n);
 		if (found) return found;
 		// A new stream for the same capcode+type with a different N supersedes an
-		// older one (multimon-ng reasm_invalidate_capcode) -- emit it incomplete.
+		// older one — emit incomplete.
 		for (const other of this.slots[pol].filter((s) => s.capcode === capcode && s.type === type && s.msgNum !== n)) {
 			this.pendingAbandoned.push(partialMessage(other, pol));
 		}

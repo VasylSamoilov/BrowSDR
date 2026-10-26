@@ -1,26 +1,23 @@
 /**
  * Frame-aware FLEX 2-FSK / 4-FSK front end for BrowSDR.
  *
- * A faithful port of the osmocom-analog src/flex/dsp.c receive path
- * (flex_rx_build_symbol / flex_rx_demodulate / flex_rx_sym SYNC1 handling).
- * It takes FM-demodulated Float32 audio (the discriminator lives upstream in
- * the shared Rust/WASM DSP) and recovers FLEX symbols.
+ * Takes FM-demodulated Float32 audio (the discriminator lives upstream in
+ * the shared Rust/WASM DSP) and recovers FLEX symbols, frames, and decoded
+ * phase buffers.
  *
  * Unlike the free-running FskBitSlicer that POCSAG and GSC share, this front
  * end is frame-aware: FLEX changes symbol rate mid-frame (the S1 preamble is
  * always 1600 baud / 2FSK; data runs at 1600 or 3200 baud per the sync code),
- * and it slices four levels, not two. Its defining property is "envelope
- * holding": the positive/negative signal levels and the slice envelope are
- * measured once on the known-symmetric S1 preamble and HELD (frozen) through
- * the data portion, because the 4FSK symbol distribution is not DC-balanced
- * over short intervals and continuous re-estimation would shift the threshold
- * and destroy the inner-level (bit_b) decision.
+ * and it slices four levels, not two. The positive/negative signal levels and
+ * the slice envelope are measured once on the known-symmetric S1 preamble and
+ * HELD (frozen) through the data portion, because the 4FSK symbol distribution
+ * is not DC-balanced over short intervals and continuous re-estimation would
+ * shift the threshold and destroy the inner-level (bit_b) decision.
  *
- * Phase 1 scope: PLL symbol recovery, 4-level envelope-holding slicer, PLL
- * lock detection, and SYNC1 sync detection + mode selection (which validates
- * the sync via combined A/inv.A BCH cross-correction and reports the air mode).
- * FIW / S2 / DATA content decode are later phases; this module emits each
- * recovered symbol and a mode-detected event to its caller.
+ * Covers PLL symbol recovery, 4-level envelope-holding slicer, lock detection,
+ * SYNC1 detection + mode selection (validates the sync via combined A/inv.A
+ * BCH cross-correction), FIW decode, SYNC2, and data deinterleaving into the
+ * four phase buffers.
  *
  * Symbol numbering (after polarity rectification):
  *   0 = -1 (outer negative), 1 = -1/3 (inner negative),
@@ -50,7 +47,7 @@ const FLEX_S2_C_INV = 0x127b;
 const FLEX_WORDS_PER_FRAME = 88; // 11 blocks x 8 words
 const FLEX_MAX_PHASES = 4; // A, B, C, D
 
-// PLL tuning constants (osmocom dsp.c, empirically validated per multimon-ng).
+// PLL tuning constants (empirically validated).
 const SLICE_THRESHOLD = 0.667; // 4-level quantization at 2/3 envelope
 const DC_OFFSET_FILTER = 0.01; // DC-removal IIR time constant (s) -- sync hunt (fast)
 const DC_OFFSET_FILTER_DATA = 0.5; // DC-removal IIR time constant (s) -- FIW/S2 (slow)
@@ -90,7 +87,7 @@ const MODES: FlexMode[] = [
 //     positives, a reserved code is reported ONLY on a 100%-error-free match.
 //
 // The 16-bit values are the outer code (codehigh) from syncCheck, cross-checked
-// against ARIB Table 3.2-5, the osmocom-analog TX sync arrays, and multimon-ng.
+// against ARIB Table 3.2-5 and the transmitter sync arrays.
 const SYNC_CODE_TABLE: Array<{ code: number; label: string; ers: boolean }> = [
 	{ code: 0x34df, label: 'Ar (emergency re-sync)', ers: true },
 	{ code: 0x22b4, label: 'A5 (reserved)', ers: false },
@@ -110,7 +107,7 @@ const SYNC_CODE_TABLE: Array<{ code: number; label: string; ers: boolean }> = [
  * Check a 64-bit sync shift register (as two 32-bit halves, hi:lo) for the
  * FLEX sync word AAAA:BBBBBBBB:CCCC where BBBBBBBB = marker and AAAA^CCCC =
  * 0xFFFF, allowing Hamming distance < 4 on both. Returns the 16-bit outer code
- * (AAAA), or 0. Mirrors osmocom flex_sync_check, operating on a 64-bit window.
+ * (AAAA), or 0. Operates on a 64-bit sliding window.
  */
 function syncCheck(hi: number, lo: number): number {
 	// marker = bits [47:16]; codehigh = bits [63:48]; codelow = ~bits[15:0].
@@ -256,7 +253,7 @@ export class FlexFrontend {
 		this.sync2SymBufStart = 0;
 	}
 
-	/** Zero all four phase buffers and the data bit counter (flex_rx_clear_phase_data). */
+	/** Zero all four phase buffers and the data bit counter. */
 	private clearPhaseData(): void {
 		for (const ph of this.phases) {
 			ph.words.fill(0);
@@ -303,7 +300,7 @@ export class FlexFrontend {
 
 	/**
 	 * PLL symbol timing recovery. Processes one sample; returns true at a symbol
-	 * boundary. Port of osmocom flex_rx_build_symbol.
+	 * boundary.
 	 */
 	private buildSymbol(sampleIn: number): boolean {
 		const phaseMax = 100 * this.sampleFreq;
@@ -385,7 +382,7 @@ export class FlexFrontend {
 		this.pllTimeout = 0;
 	}
 
-	/** Main demodulator: port of osmocom flex_rx_demodulate. */
+	/** Main symbol demodulator: DC removal, envelope tracking, PLL, and 4-level slicer. */
 	private demodulate(sampleIn: number): void {
 		if (!this.buildSymbol(sampleIn)) return;
 
@@ -449,7 +446,7 @@ export class FlexFrontend {
 	/**
 	 * Per-bit margin confidence (DATA only): a "close" vote means the winning
 	 * side held < 60% of the total votes. bit_a splits pos/neg; bit_b splits
-	 * outer/inner. Mirrors the confidence tracking in flex_rx_demodulate.
+	 * outer/inner.
 	 */
 	private computeConfidence(): void {
 		this.symBitALow = 0;
@@ -478,8 +475,8 @@ export class FlexFrontend {
 	}
 
 	/**
-	 * Dispatch a recovered symbol to the RX state machine. Port of the
-	 * osmocom flex_rx_sym switch.
+	 * Dispatch a recovered symbol to the RX state machine. 
+	 * 
 	 */
 	private feedSymbol(sym: number): void {
 		// Rectify for polarity (inverted mapping flips the level order).
@@ -506,7 +503,7 @@ export class FlexFrontend {
 	 * SYNC1 handling: accumulate raw (non-polarity-corrected) bits into the
 	 * 64-bit sync register, detect the sync marker, then after 16 more symbols
 	 * complete inv.A and validate via combined A/inv.A BCH correction. Port of
-	 * the RX_STATE_SYNC1 case of osmocom flex_rx_sym.
+	 * the SYNC1 (preamble) state.
 	 */
 	private handleSync1(sym: number): void {
 		const bit = sym < 2 ? 1 : 0;
@@ -566,7 +563,7 @@ export class FlexFrontend {
 	/**
 	 * RX_STATE_FIW: accumulate a 32-bit BCH codeword (1600/2FSK), then decode
 	 * it. On success, switch to the data symbol rate and enter SYNC2; on
-	 * failure, return to sync hunting. Port of the FIW case of flex_rx_sym.
+	 * failure, return to sync hunting.
 	 */
 	private handleFiw(symRect: number): void {
 		this.fiwRaw = ((this.fiwRaw >>> 1) | (symRect > 1 ? 0x80000000 : 0)) >>> 0;
@@ -600,7 +597,7 @@ export class FlexFrontend {
 	 * already synced from S1/FIW; S2 only re-trains across the baud switch and
 	 * confirms the frame-data boundary. We scan a window, locate C and inv.C by
 	 * correlation, and correct the boundary only on unambiguous evidence; else
-	 * use the blind symbol count. Port of the SYNC2 case of flex_rx_sym.
+	 * use the blind symbol count.
 	 */
 	private handleSync2(symRect: number): void {
 		const levels = this.mode ? this.mode.levels : 2;
@@ -683,7 +680,7 @@ export class FlexFrontend {
 	 * RX_STATE_DATA: read data symbols into the interleaved phase buffers until
 	 * EITHER the full data portion (1760 ms of symbols) is consumed OR all
 	 * active phases have gone idle (the frame ended early), then fire onFrame
-	 * and return to sync hunting. Port of the DATA case of flex_rx_sym:
+	 * and return to sync hunting.
 	 * `if (++data_count == baud*1760/1000 || idle) decode`.
 	 */
 	private handleData(symRect: number): void {
@@ -719,7 +716,7 @@ export class FlexFrontend {
 	}
 
 	/**
-	 * Deinterleave one data symbol into the four phase buffers (flex_rx_read_data),
+	 * Deinterleave one data symbol into the four phase buffers,
 	 * per ARIB STD-43A Section 3.3:
 	 *   A1 (1600/2FSK): bit_a -> Phase A only.
 	 *   A3 (1600/4FSK): bit_a -> Phase A, bit_b -> Phase C (same phase pair every symbol).
@@ -753,7 +750,7 @@ export class FlexFrontend {
 	}
 
 	/** True once every active phase for this mode has seen an idle (all-0/all-1)
-	 * word -- the data portion has ended early (flex_rx_read_data idle return,
+	 * word — the data portion has ended early (
 	 * IDLE_THRESHOLD = 0). */
 	private allPhasesIdle(): boolean {
 		for (const pi of this.activePhases()) {
@@ -796,7 +793,7 @@ export class FlexFrontend {
 
 	/**
 	 * Provisional mode identification at marker-detection time. Captures the A
-	 * code and BCH-corrects it (like osmocom flex_rx_decode_mode) so a 1-2 bit
+	 * code and BCH-corrects it so a 1-2 bit
 	 * error in the outer code still identifies the mode -- the raw 16-bit code
 	 * from the Hamming-tolerant marker match is not trusted on its own. The
 	 * authoritative validation is the later combined A/inv.A correction.

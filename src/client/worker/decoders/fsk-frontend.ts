@@ -35,12 +35,10 @@ export class FskBitSlicer {
 
 	// ── DC removal ──
 	private dcLevel = 0;
-	/** DC-removal IIR — osmocom 0.010 s time constant (FSK_PLL_DC_OFFSET_FILTER),
-	 * calculated from sample rate. Each update is clamped to ±DC_CLAMP of the
-	 * current envelope so a single marginal sample cannot yank the DC estimate
-	 * by more than a small fraction of the signal amplitude per symbol. Without
-	 * the clamp, long same-symbol codeword runs drag the estimate toward the
-	 * symbol level and flip the bits that follow. */
+	/** DC-removal IIR with a 10 ms time constant. Each update is clamped to
+	 * ±DC_CLAMP of the current envelope so a long same-symbol run (IDLE words,
+	 * long message runs) cannot drag the estimate toward the symbol level and
+	 * bias the slicer. */
 	private readonly dcAlpha: number;
 	private static readonly DC_CLAMP = 0.001; // max DC shift per sample as fraction of env
 	private static readonly DC_MAX   = 0.10;  // hard cap on DC estimate as fraction of env
@@ -56,32 +54,23 @@ export class FskBitSlicer {
 	nonconsec = 0;
 	private lastSample = 0;
 
-	// ── Integer phase accumulator + majority vote (osmocom libfsk_pll). ──
-	// phase runs 0..phaseMax over one symbol; phaseRate advances it per sample.
-	// The bit is decided by MAJORITY VOTE over the middle 80% of the symbol
-	// (10% < phase < 90%), not a single centre sample — so one marginal sample
-	// on a perfect signal cannot flip the bit (the other ~80% outvote it).
-	// phase_max = 100 * samplerate, phase_rate = 100 * baud (osmocom's scaling).
+	// ── Integer phase accumulator + majority vote ──
+	// The phase runs 0..phaseMax over one symbol; phaseRate advances it per
+	// sample. The bit is decided by MAJORITY VOTE over the middle 80% of each
+	// symbol (10% < phase < 90%), not a single centre sample — so one marginal
+	// sample on a perfect signal cannot flip the bit (the other ~80% outvote it).
 	private readonly phaseMax: number;
 	private readonly phaseRate: number;
 	private phase = 0;
 	private voteHigh = 0;
 	private voteLow = 0;
 
-	// ── Envelope tracking (adaptive deviation reference). ──
-	// The FM discriminator's output deviation is NOT fixed: it rails past the
-	// nominal full scale on strong/over-deviated bursts and shrinks toward zero
-	// on weak ones. A running estimate of the signal envelope (mean |DC-removed
-	// sample|) gives an adaptive reference so the eye looks consistent at both
-	// extremes. The 2-FSK bit decision stays a scale-free SIGN vote (osmocom
-	// does not use the envelope for 2-level slicing); the envelope is used to
-	// express the zero-crossing hysteresis and the reported soft confidence in
-	// envelope units, and is available for GSC/FLEX multi-level thresholds. A
-	// slow IIR so a single railed burst cannot yank the reference. While
-	// unlocked it does not track the (noise) input; instead it DECAYS slowly
-	// back toward a neutral start value, so a long gap between transmissions
-	// relaxes the reference to a sensible baseline rather than holding a stale
-	// burst's envelope or snapping to noise.
+	// ── Envelope tracking (adaptive deviation reference) ──
+	// The FM discriminator's output amplitude is not fixed: it rails on
+	// strong/over-deviated signals and shrinks on weak ones. A running mean
+	// of |sample| gives an adaptive reference so bit decisions are consistent
+	// across the whole deviation range. While unlocked the envelope decays
+	// slowly toward a neutral baseline instead of tracking noise.
 	private env = 0.5;
 	/** Neutral envelope baseline: the nominal 2-FSK symbol amplitude the demod
 	 * produces at standard deviation (order 0.5 full-scale). The unlocked decay
@@ -97,21 +86,15 @@ export class FskBitSlicer {
 
 	constructor(audioRate: number, baud: number, onBit: (bit: number) => void) {
 		this.spb = audioRate / baud;
-		// osmocom fsk_pll.c: dc = (dc*tc + x)/(tc+1), tc = samplerate * 0.010 s.
-		// A seconds-based constant converges in ~10 ms regardless of baud, so a
-		// short page's DC offset is nulled within the burst; the old bit-scaled
-		// 1/(64*spb) was ~12x slower at 512 bd and left the slice DC-biased for
-		// the whole of a short page.
-		// DC: osmocom 0.010 s time constant, clamped per update (see removeDc).
+		// 10 ms DC time constant: converges within the burst preamble regardless
+		// of baud rate. A bit-scaled constant was too slow at low baud and left
+		// the slicer DC-biased through short pages.
 		this.dcAlpha = 1 / (audioRate * 0.010 + 1);
-		// Envelope tracks slower than DC (it should average the symbol
-		// amplitude across runs, not follow individual symbols): ~64 bits.
+		// Envelope tracks slower than DC — it averages amplitude over ~64 bits.
 		this.envAlpha = 1 / (64 * this.spb);
-		// Unlocked decay ~16x slower (~1000 bits) so the reference relaxes
-		// gently toward the neutral baseline between transmissions.
+		// Unlocked decay ~1000 bits: reference relaxes gently between bursts.
 		this.envDecayAlpha = 1 / (1024 * this.spb);
-		// osmocom integer phase scaling (fsk_pll_init): phase_max = 100*sr,
-		// phase_rate = 100*baud. phase wraps once per symbol.
+		// Integer phase scaling: phase runs 0..(100*audioRate) per symbol.
 		this.phaseMax = 100 * audioRate;
 		this.phaseRate = 100 * baud;
 		this.onBit = onBit;
@@ -130,14 +113,11 @@ export class FskBitSlicer {
 	}
 
 	/**
-	 * Re-anchor the bit clock to a just-verified symbol boundary. The decoder
-	 * calls this the instant it accepts a frame sync codeword (FSC): the FSC's
-	 * last bit IS a true symbol boundary, so the phase accumulator is reset to
-	 * the start of a symbol and the in-progress vote is cleared. This pins each
-	 * batch's 16-codeword grid to the verified FSC (osmocom resets fsk_rx_index
-	 * to 0 at every sync) so that even a one-bit timing slip during a prior
-	 * batch cannot propagate: the next FSC re-aligns the grid exactly, instead
-	 * of the free-running count carrying a half-bit offset into the new batch.
+	 * Re-anchor the bit clock to a just-verified symbol boundary. Call this
+	 * when the decoder confirms a frame sync codeword: resets the phase
+	 * accumulator to the start of a symbol and clears the in-progress vote.
+	 * This pins the batch's codeword grid to the confirmed sync boundary so
+	 * a timing slip during the previous batch cannot carry into the next one.
 	 */
 	syncPhase(): void {
 		this.phase = 0;
@@ -148,23 +128,16 @@ export class FskBitSlicer {
 	}
 
 	/**
-	 * Adaptive DC removal. Tracks the signal DC continuously with an unclamped
-	 * IIR so the zero-crossing slicer stays gain-independent (an absolute clamp
-	 * in signal units caps the correctable offset, so at high gain a real DC
-	 * offset leaks through and biases the slice). The estimate must be allowed
-	 * to converge to the ACTUAL offset even before lock — pulling it toward 0
-	 * on every unlocked sample stops it cancelling a steady offset and blocks
-	 * acquisition of a DC-offset page. The IIR time constant alone keeps a
-	 * transient glitch from parking a large stale offset. Returns the
-	 * DC-removed sample.
+	 * Adaptive DC removal. The FM discriminator has a fixed hardware DC offset
+	 * that varies by tuner but is constant within a transmission. The IIR
+	 * tracks and removes it during the alternating preamble, then freezes once
+	 * locked so same-symbol codeword runs cannot drag the estimate toward the
+	 * symbol level and bias the slicer.
 	 */
 	private removeDc(x: number): number {
-		// When locked, the DC offset is a fixed hardware property of the FM
-		// discriminator — it does not change within a transmission. Updating the
-		// IIR while locked lets same-symbol codeword runs (IDLE, long message
-		// runs) bias the estimate toward the symbol level, collapsing the eye.
-		// Freeze the DC estimate while locked; let it track only during preamble
-		// acquisition where the alternating pattern gives unbiased updates.
+		// Freeze the estimate while locked: the preamble's alternating pattern
+		// gives unbiased estimates; data words are not balanced so updating
+		// during decode would bias the slicer.
 		if (!this.pllLocked) {
 			const delta = this.dcAlpha * (x - this.dcLevel);
 			const maxDelta = FskBitSlicer.DC_CLAMP * this.env;
@@ -180,15 +153,9 @@ export class FskBitSlicer {
 	}
 
 	/** Feed a block of FM-demodulated samples; emits bits via the callback.
-	 *
-	 * Ported precisely from osmocom-analog src/libfsk_pll/fsk_pll.c
-	 * (fsk_pll_process), itself from multimon-ng's FLEX decoder. The bit is
-	 * decided by MAJORITY VOTE over the middle 80% of each symbol, NOT a single
-	 * centre sample: on a perfect signal a lone marginal sample (DC-tracker
-	 * ripple on a same-symbol run, one noisy sample) cannot flip the bit because
-	 * the other ~80% of the symbol's samples outvote it. A single-sample slicer
-	 * flips such bits, which is what produced spurious BCH corrections on clean
-	 * IDLE/message codewords. */
+	 * Bit decisions use majority vote over the middle 80% of each symbol so
+	 * a single marginal sample cannot flip a bit that the rest of the symbol
+	 * supports correctly. */
 	process(samples: Float32Array): void {
 		const phaseMax = this.phaseMax;
 		const lockedRate = 0.045;
@@ -197,23 +164,10 @@ export class FskBitSlicer {
 		for (let i = 0; i < samples.length; i++) {
 			const val = this.removeDc(samples[i]);
 
-			// Update the envelope (mean |val|) with a slow IIR, then express the
-			// decision variable in ENVELOPE UNITS. This makes the eye consistent
-			// whether the discriminator over-deviates (|val| railing past full
-			// scale) or under-deviates (|val| near zero): norm sits near +/-1 for
-			// a solid symbol at ANY deviation. The SIGN is unchanged, so the
-			// 2-FSK majority vote stays the scale-free osmocom sign vote; only
-			// the crossing hysteresis and the reported soft confidence benefit
-			// from the normalisation.
-			//
-			// The envelope only TRACKS the real symbol amplitude while locked.
-			// While unlocked the input is noise, so instead of tracking it the
-			// envelope DECAYS slowly back toward the neutral baseline
-			// (ENV_DEFAULT) — a long gap relaxes the reference gently rather than
-			// holding a stale burst value or snapping to noise. norm uses the
-			// envelope whenever it is positive (always, since it decays toward a
-			// positive baseline, not zero), so the eye is in consistent envelope
-			// units; sign is unchanged so sign-based acquisition is never starved.
+			// Normalise by the running envelope so bit decisions are
+			// consistent regardless of signal deviation. While unlocked the
+			// envelope decays toward a neutral baseline rather than tracking
+			// noise; sign is unchanged so acquisition is not affected.
 			if (this.pllLocked) {
 				this.env += this.envAlpha * (Math.abs(val) - this.env);
 			} else {
@@ -253,10 +207,8 @@ export class FskBitSlicer {
 			if (this.phase >= phaseMax) {
 				this.phase -= phaseMax;
 				this.nonconsec = 0;
-				// 2-FSK mark ("1") = negative deviation. osmocom votes high for
-				// val > 0; here a HIGH (positive) sample is bit 0, LOW is bit 1,
-				// so the mark bit is (voteLow >= voteHigh). Fall back to the last
-				// sample's sign when the symbol had no votes.
+				// 2-FSK: mark ("1") = negative deviation (below zero).
+				// Fall back to the last sample's sign when there were no votes.
 				let bit: number;
 				if (this.voteHigh + this.voteLow > 0) bit = this.voteLow >= this.voteHigh ? 1 : 0;
 				else bit = val < 0 ? 1 : 0;
