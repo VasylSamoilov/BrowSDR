@@ -5,6 +5,8 @@ import type {
 	PocsagStatusCallback,
 	GscCallback,
 	GscStatusCallback,
+	FlexCallback,
+	FlexStatusCallback,
 	RdsCallback,
 	Rtl433Callback,
 	AdsbCallback,
@@ -40,6 +42,7 @@ import type { VfoParams, RemoteClientState } from '@/worker/runtime/types';
 import { AUDIO_RATE } from '@/worker/runtime/constants';
 import { POCSAGDecoder } from '@/worker/decoders/pocsag';
 import { GSCDecoder } from '@/worker/decoders/golay';
+import { FlexDecoder } from '@/worker/decoders/flex/decoder';
 import { ensureWasmInitialized, init } from '@/worker/runtime/wasm-init';
 import type { Backend } from '@/worker/runtime/backend';
 import { AUDIO_QUEUE_CAPACITY, appendPcm, mixLength } from './audio-queue';
@@ -82,6 +85,14 @@ export function setRemoteHostGscCallback(this: Backend, callback: HostCallback<P
 
 export function setRemoteHostGscStatusCallback(this: Backend, callback: HostCallback<Parameters<GscStatusCallback>>): void {
 	this._remoteHostGscStatusCb = callback;
+}
+
+export function setRemoteHostFlexCallback(this: Backend, callback: HostCallback<Parameters<FlexCallback>>): void {
+	this._remoteHostFlexCb = callback;
+}
+
+export function setRemoteHostFlexStatusCallback(this: Backend, callback: HostCallback<Parameters<FlexStatusCallback>>): void {
+	this._remoteHostFlexStatusCb = callback;
 }
 
 export function setRemoteHostRdsCallback(this: Backend, callback: HostCallback<Parameters<RdsCallback>>): void {
@@ -132,6 +143,7 @@ export function _getOrCreateClientState(this: Backend, clientId: string): Remote
 			mixBuf: null,
 			pocsagDecoders: [],
 			gscDecoders: [],
+			flexDecoders: [],
 			rdsDecoders: [],
 			squelchOpen: [],
 		});
@@ -284,6 +296,7 @@ export function removeRemoteVfo(this: Backend, clientId: string, index: number):
 	state.audioQueues.splice(index, 1);
 	state.pocsagDecoders.splice(index, 1);
 	if (state.gscDecoders) state.gscDecoders.splice(index, 1);
+	if (state.flexDecoders) state.flexDecoders.splice(index, 1);
 	state.rdsDecoders.splice(index, 1);
 	state.squelchOpen.splice(index, 1);
 
@@ -333,9 +346,53 @@ function ensureRemoteGscDecoder(
 	return dec;
 }
 
-/** Run POCSAG + GSC decoding for one remote client VFO, forwarding messages and
+function ensureRemoteFlexDecoder(
+	cb: HostCallback<Parameters<FlexCallback>>,
+	state: RemoteClientState,
+	index: number,
+	params: VfoParams,
+	clientId: string,
+): FlexDecoder {
+	if (!state.flexDecoders) state.flexDecoders = [];
+	let dec = state.flexDecoders[index];
+	if (!dec) {
+		dec = new FlexDecoder(AUDIO_RATE, (fmsg) => cb(clientId, index, params.freq, fmsg), params.flexCharset);
+		state.flexDecoders[index] = dec;
+	}
+	return dec;
+}
+
+/** Run POCSAG + GSC + FLEX decoding for one remote client VFO, forwarding messages and
  * throttled status to that client. Nulls a decoder when its protocol disables. */
 function decodeRemotePager(
+	backend: Backend,
+	state: RemoteClientState,
+	index: number,
+	params: VfoParams,
+	clientId: string,
+	samples: Float32Array,
+): void {
+	decodeRemotePocsag(backend, state, index, params, clientId, samples);
+	decodeRemoteGsc(backend, state, index, params, clientId, samples);
+
+	if (backend._remoteHostFlexCb && params.flex && params.mode === 'nfm') {
+		const fdec = ensureRemoteFlexDecoder(backend._remoteHostFlexCb, state, index, params, clientId);
+		fdec.process(samples);
+		if (backend._remoteHostFlexStatusCb) {
+			if (!state.flexStatusAt) state.flexStatusAt = [];
+			const now = Date.now();
+			if (state.flexStatusAt[index] == null || now - state.flexStatusAt[index] >= 500) {
+				state.flexStatusAt[index] = now;
+				backend._remoteHostFlexStatusCb(clientId, index, params.freq, fdec.getStatus());
+			}
+		}
+	} else if (state.flexDecoders && state.flexDecoders[index]) {
+		state.flexDecoders[index] = null;
+		if (state.flexStatusAt) state.flexStatusAt[index] = undefined as unknown as number;
+	}
+}
+
+function decodeRemotePocsag(
 	backend: Backend,
 	state: RemoteClientState,
 	index: number,
@@ -358,7 +415,16 @@ function decodeRemotePager(
 		state.pocsagDecoders[index] = null;
 		if (state.pocsagStatusAt) state.pocsagStatusAt[index] = undefined as unknown as number;
 	}
+}
 
+function decodeRemoteGsc(
+	backend: Backend,
+	state: RemoteClientState,
+	index: number,
+	params: VfoParams,
+	clientId: string,
+	samples: Float32Array,
+): void {
 	if (backend._remoteHostGscCb && params.gsc && params.mode === 'nfm') {
 		const gdec = ensureRemoteGscDecoder(backend._remoteHostGscCb, state, index, params, clientId);
 		gdec.process(samples);

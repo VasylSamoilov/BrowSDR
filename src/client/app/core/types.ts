@@ -37,6 +37,10 @@ export interface Vfo {
 	/** When true, a GSC voice page auto-unmutes and opens squelch so the user
 	 * hears the announcement, restoring the prior state when it ends. */
 	gscAutoListen?: boolean;
+	/** Decode FLEX (Motorola FLEX paging) on this NFM VFO. */
+	flex?: boolean;
+	/** Selected FLEX charset (ASCII default, or Kanji which switches decoding). */
+	flexCharset?: CharsetKey;
 	displayFreq: string;
 	focused: boolean;
 }

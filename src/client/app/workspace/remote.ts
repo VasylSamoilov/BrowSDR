@@ -7,7 +7,7 @@ import * as Comlink from 'comlink';
 import { WebRTCHandler, PEER_ID_PREFIX } from '@/remote/webrtc';
 
 /** Pager-decoder command types dispatched together (POCSAG + GSC). */
-const PAGER_COMMANDS = new Set<ReceiverCommand['type']>(['pocsag', 'pocsag_status', 'gsc', 'gsc_status']);
+const PAGER_COMMANDS = new Set<ReceiverCommand['type']>(['pocsag', 'pocsag_status', 'gsc', 'gsc_status', 'flex', 'flex_status']);
 
 export const remoteMethods = {
 	applySharedChannelization(this: AppInstance) {
@@ -261,7 +261,7 @@ export const remoteMethods = {
 
 		if (handlePacketTelemetry.call(this, cmd)) return;
 		if (PAGER_COMMANDS.has(cmd.type)) {
-			handlePagerCommand.call(this, cmd as Extract<ReceiverCommand, { type: 'pocsag' | 'pocsag_status' | 'gsc' | 'gsc_status' }>, clientId);
+			handlePagerCommand.call(this, cmd as Extract<ReceiverCommand, { type: 'pocsag' | 'pocsag_status' | 'gsc' | 'gsc_status' | 'flex' | 'flex_status' }>, clientId);
 			return;
 		}
 		switch (cmd.type) {
@@ -537,11 +537,21 @@ async function installPagerHostCallbacks(app: AppInstance): Promise<void> {
 			app._webrtc?.sendCommandTo(clientId, { type: 'gsc_status', vfoIndex, freq, status });
 		}),
 	);
+	await app.backend.setRemoteHostFlexCallback(
+		Comlink.proxy((clientId: string, vfoIndex: number, freq: number, msg: Parameters<AppInstance['_onFlexMessage']>[2]) => {
+			app._webrtc?.sendCommandTo(clientId, { type: 'flex', vfoIndex, freq, msg });
+		}),
+	);
+	await app.backend.setRemoteHostFlexStatusCallback(
+		Comlink.proxy((clientId: string, vfoIndex: number, freq: number, status: Parameters<AppInstance['_onFlexStatus']>[2]) => {
+			app._webrtc?.sendCommandTo(clientId, { type: 'flex_status', vfoIndex, freq, status });
+		}),
+	);
 }
 
 function handlePagerCommand(
 	this: AppInstance,
-	cmd: Extract<ReceiverCommand, { type: 'pocsag' | 'pocsag_status' | 'gsc' | 'gsc_status' }>,
+	cmd: Extract<ReceiverCommand, { type: 'pocsag' | 'pocsag_status' | 'gsc' | 'gsc_status' | 'flex' | 'flex_status' }>,
 	_clientId: string | null,
 ) {
 	if (this.remoteMode !== 'client') return;
@@ -557,6 +567,12 @@ function handlePagerCommand(
 			break;
 		case 'gsc_status':
 			this._onGscStatus(cmd.vfoIndex, cmd.freq, cmd.status);
+			break;
+		case 'flex':
+			this._onFlexMessage(cmd.vfoIndex, cmd.freq, cmd.msg);
+			break;
+		case 'flex_status':
+			this._onFlexStatus(cmd.vfoIndex, cmd.freq, cmd.status);
 			break;
 	}
 }

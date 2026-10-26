@@ -131,6 +131,64 @@
 			</span>
 		</div>
 
+		<!-- FLEX (Motorola FLEX) decode toggle (NFM). -->
+		<UiFormRow class="full-checkbox-row" v-if="vfo.mode === 'nfm'">
+			<UiCheckbox v-model="vfo.flex" label="Decode FLEX" @change="receiver.toggleFlex(i)"></UiCheckbox>
+		</UiFormRow>
+		<!-- FLEX charset: ASCII default, or Kanji (switches alpha decoding to
+		     16-bit Shift-JIS). Selecting a handler charset changes the decode
+		     logic, it is not a glyph-table remap. -->
+		<UiFormRow v-if="vfo.mode === 'nfm' && vfo.flex" class="pocsag-charset-row">
+			<label>Charset</label>
+			<select class="decoder-vfo-select"
+				:value="receiver.flexCharsetValue(i)"
+				@change="receiver.setFlexCharset(i, $event.target.value)">
+				<optgroup v-for="g in receiver.pagerCharsetGroups('flex')" :key="g.vendor" :label="g.vendor">
+					<option v-for="o in g.items" :key="o.value" :value="o.value">{{ o.label }}</option>
+				</optgroup>
+			</select>
+		</UiFormRow>
+
+		<!-- FLEX live link status: lock, pipeline stage, polarity, air mode,
+		     cycle/frame, BER, and network/temporal data from BIW (system id,
+		     country, date/time/timezone when the transmitter broadcasts them). -->
+		<div class="pocsag-status-panel" v-if="vfo.mode === 'nfm' && vfo.flex"
+			style="padding:4px 8px;font-size:11px;font-family:monospace;line-height:1.6;background:rgba(0,0,0,0.3);border-radius:4px;margin:4px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+			<span style="display:flex;align-items:center;gap:6px;">
+				<span :style="{ width:'8px',height:'8px',borderRadius:'50%',display:'inline-block',flexShrink:0,background: receiver.flexStatus[i]?.locked ? '#44cc44' : '#666' }"></span>
+				<span style="font-weight:700;color:#fff;">FLEX {{ receiver.flexStatus[i]?.locked ? 'LOCK' : 'HUNT' }}</span>
+			</span>
+			<span v-if="receiver.flexStatus[i]?.locked" style="color:#b39ddb;text-transform:uppercase;">{{ receiver.flexStatus[i].stage }}</span>
+			<span v-if="receiver.flexStatus[i]?.inverted" style="color:#ffcc44;">INV</span>
+			<span v-if="receiver.flexStatus[i]?.mode" style="color:#aaa;">{{ receiver.flexStatus[i].mode }}</span>
+			<span v-if="receiver.flexStatus[i]?.cycle != null" style="color:#88aacc;">C{{ String(receiver.flexStatus[i].cycle).padStart(2, '0') }} F{{ String(receiver.flexStatus[i].frame).padStart(3, '0') }}</span>
+			<span v-if="receiver.flexStatus[i]?.ber != null"
+				:style="{ color: receiver.flexStatus[i].ber < 0.01 ? '#44cc44' : (receiver.flexStatus[i].ber < 0.05 ? '#ffcc44' : '#ff6644') }">
+				BER {{ (receiver.flexStatus[i].ber * 100).toFixed(1) }}%
+			</span>
+			<span v-if="receiver.flexStatus[i]?.localId != null" style="color:#aaa;" title="Simulcast local channel ID / coverage zone">LID {{ receiver.flexStatus[i].localId }}<template v-if="receiver.flexStatus[i]?.coverageZone != null">/{{ receiver.flexStatus[i].coverageZone }}</template></span>
+			<span v-if="receiver.flexStatus[i]?.countryCode != null" style="color:#aaa;" title="Country code">CC {{ receiver.flexStatus[i].countryCode }}</span>
+			<span v-if="receiver.flexStatus[i]?.tmf != null" style="color:#aaa;" title="SSID2 traffic-management flags (which of the 4 traffic groups this channel serves)">TMF 0x{{ receiver.flexStatus[i].tmf.toString(16).toUpperCase() }}</span>
+			<span v-if="receiver.flexStatus[i]?.date" style="color:#8bc34a;">{{ receiver.flexStatus[i].date }}</span>
+			<span v-if="receiver.flexStatus[i]?.time" style="color:#8bc34a;">{{ receiver.flexStatus[i].time }}<template v-if="receiver.flexStatus[i]?.tzOffsetMin != null">&nbsp;{{ receiver.flexTzLabel(i) }}</template></span>
+			<span v-if="receiver.flexStatus[i]?.dst != null" :style="{ color: receiver.flexStatus[i].dst ? '#8bc34a' : '#888' }" :title="receiver.flexStatus[i].dst ? 'Daylight saving time active' : 'Standard time (no DST)'">{{ receiver.flexStatus[i].dst ? 'DST' : 'STD' }}</span>
+			<span v-if="receiver.flexStatus[i]?.reasmBuffers" style="color:#ffb74d;" title="In-flight fragment reassembly buffers (this polarity)">REASM&times;{{ receiver.flexStatus[i].reasmBuffers }}</span>
+		</div>
+
+		<!-- FLEX group-messaging slots (A1): 16 temporary-address slots as a
+		     2x8 colored mini-grid. grey=idle, blue=registered, amber=delivering.
+		     Hover a cell for slot #, state, target frame, and member capcodes. -->
+		<div v-if="vfo.mode === 'nfm' && vfo.flex && receiver.flexHasGroups(i)"
+			style="padding:4px 8px;margin:4px 0;background:rgba(0,0,0,0.3);border-radius:4px;">
+			<div style="font-size:9px;font-weight:700;color:#aaa;letter-spacing:0.5px;margin-bottom:3px;">GROUP SLOTS</div>
+			<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:2px;max-width:200px;">
+				<span v-for="(slot, s) in receiver.flexStatus[i].groupSlots" :key="s"
+					:title="receiver.flexGroupSlotTitle(i, s)"
+					:style="{ height:'10px', borderRadius:'2px', cursor:'help', background: receiver.flexGroupCellColor(slot.state) }"></span>
+			</div>
+		</div>
+
+
 		<!-- DSD status display (SDR++ Brown style) -->
 		<div class="dsd-status-panel" v-if="vfo.mode === 'dsd'" style="padding:4px 8px;font-size:11px;font-family:monospace;line-height:1.6;background:rgba(0,0,0,0.3);border-radius:4px;margin:4px 0;">
 			<!-- Mode line -->

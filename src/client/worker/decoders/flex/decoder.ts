@@ -1,0 +1,134 @@
+/**
+ * Top-level FLEX decoder for BrowSDR. Wires the frame-aware 2FSK/4FSK front
+ * end (symbol recovery, FIW, SYNC2, data read into the four interleaved phase
+ * buffers) to the frame-content decoder (per-word BCH, address + vector parse,
+ * alpha / numeric extraction), emitting one FlexMessage per decoded page.
+ *
+ * Matches the GSCDecoder/POCSAG decoder convention: construct with the audio
+ * sample rate and an onMessage callback, then feed FM-demodulated audio via
+ * process(). The front end holds state across process() calls.
+ */
+
+import { FlexFrontend, RX_STATE_SYNC1, RX_STATE_FIW, RX_STATE_SYNC2, RX_STATE_DATA } from './frontend';
+import { FlexFrameDecoder } from './frame';
+import type { FlexMode, FlexFiw, FlexPhaseData, FlexMessage } from './types';
+import type { FlexStatus, FlexRxStage } from '@/worker/decoders/types';
+import type { CharsetKey } from '@/worker/decoders/charsets';
+import { FLEX_DEFAULT_CHARSET, flexCharsetHandler } from '@/worker/decoders/charsets';
+
+export class FlexDecoder {
+	private readonly frontend: FlexFrontend;
+	private frames: FlexFrameDecoder;
+	private readonly onMessage: (msg: FlexMessage) => void;
+	private charset: CharsetKey;
+	private mode: FlexMode | null = null;
+	private polarity = 0;
+
+	constructor(audioRate: number, onMessage: (msg: FlexMessage) => void, charset: CharsetKey = FLEX_DEFAULT_CHARSET) {
+		this.onMessage = onMessage;
+		this.charset = charset;
+		// The selected charset attaches a decode handler, not a glyph table:
+		// the 'kanji' handler switches alpha extraction to 16-bit Shift-JIS.
+		this.frames = new FlexFrameDecoder(flexCharsetHandler(charset) === 'kanji');
+		this.frontend = new FlexFrontend(audioRate, {
+			onMode: (mode: FlexMode, polarity: number) => {
+				this.mode = mode;
+				this.polarity = polarity;
+			},
+			onFrame: (phases: FlexPhaseData[], activePhases: number[], fiw: FlexFiw, polarity: number) => {
+				// Bitrate (bps) = symbol rate x bits/symbol (4FSK carries 2 bits).
+				const levels = this.mode ? this.mode.levels : 2;
+				const bps = this.mode ? this.mode.baud * (levels === 4 ? 2 : 1) : 0;
+				for (const msg of this.frames.decode(phases, activePhases, fiw, polarity)) {
+					msg.baud = bps;
+					msg.levels = levels;
+					this.onMessage(msg);
+				}
+			},
+		});
+	}
+
+	/** Feed a block of FM-demodulated Float32 audio samples. */
+	process(samples: Float32Array): void {
+		this.frontend.process(samples);
+	}
+
+	/** Switch the active FLEX charset. A handler charset (e.g. Kanji) changes
+	 * the decoding logic, so the frame decoder is rebuilt for the new mode. */
+	setCharset(charset: CharsetKey): void {
+		this.charset = charset;
+		this.frames = new FlexFrameDecoder(flexCharsetHandler(charset) === 'kanji');
+	}
+
+	reset(): void {
+		this.frontend.reset();
+		this.frames.reset();
+		this.mode = null;
+		this.polarity = 0;
+	}
+
+	/**
+	 * Live receiver status for the UI. The pipeline stage reflects the PLL lock
+	 * and the front end's RX state machine (S1 hunt -> FIW -> S2 -> DATA); mode,
+	 * baud and levels come from the detected air mode, and cycle/frame from the
+	 * last decoded FIW. Before lock everything but `stage` reads null.
+	 */
+	getStatus(): FlexStatus {
+		const locked = this.frontend.locked;
+		const stage = this.rxStage(locked);
+		const mode = this.frontend.detectedMode;
+		const fiw = this.frontend.lastFiw;
+		const net = this.frames.getNetInfo();
+		return {
+			locked,
+			stage,
+			inverted: this.frontend.detectedPolarity === 1,
+			mode: mode ? mode.label : null,
+			baud: mode ? mode.baud : null,
+			levels: mode ? mode.levels : null,
+			cycle: fiw ? fiw.cycle : null,
+			frame: fiw ? fiw.frame : null,
+			ber: this.frames.getBer(),
+			localId: net.localId,
+			coverageZone: net.coverageZone,
+			countryCode: net.countryCode,
+			tmf: net.tmf,
+			date: net.date,
+			time: net.time,
+			tzOffsetMin: net.tzOffsetMin,
+			dst: net.dst,
+			groupSlots: this.frames
+				.getGroupSlots(this.polarity)
+				.map((s) => ({ state: s.state, targetFrame: s.targetFrame, members: s.members.slice() })),
+			reasmBuffers: this.frames.getReasmCount(this.polarity),
+		};
+	}
+
+	/** Map the front end's PLL lock + RX state to a UI pipeline stage. */
+	private rxStage(locked: boolean): FlexRxStage {
+		if (!locked) return 'hunt';
+		switch (this.frontend.state) {
+			case RX_STATE_FIW:
+				return 'fiw';
+			case RX_STATE_SYNC2:
+				return 'sync2';
+			case RX_STATE_DATA:
+				return 'data';
+			case RX_STATE_SYNC1:
+			default:
+				return 'sync1';
+		}
+	}
+
+	get locked(): boolean {
+		return this.frontend.locked;
+	}
+	get detectedMode(): FlexMode | null {
+		return this.mode;
+	}
+	get detectedPolarity(): number {
+		return this.polarity;
+	}
+}
+
+export type { FlexMessage } from './types';

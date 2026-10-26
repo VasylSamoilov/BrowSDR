@@ -37,6 +37,46 @@ export interface PagerLogEntry {
 	voiceEvent?: 'start' | 'stop';
 	/** GSC: why the voice page ended (on a 'stop' event). */
 	voiceEndReason?: 'activation' | 'preamble' | 'silence' | 'timeout';
+	/** FLEX: decoded phase 'A'..'D'. */
+	phase?: string;
+	/** FLEX: frame cycle number (0-14) this page was received in. */
+	flexCycle?: number;
+	/** FLEX: frame number (0-127) this page was received in. */
+	flexFrame?: number;
+	/** FLEX: true when the frame was received with inverted polarity. */
+	inverted?: boolean;
+	/** FLEX fragment flag: 'K' complete, 'F' continued, 'C' final. */
+	frag?: string;
+	/** FLEX: true once the message is whole (complete or fully reassembled). */
+	complete?: boolean;
+	/** FLEX alpha signature check: true ok, false bad, null n/a. */
+	sigOk?: boolean | null;
+	/** FLEX per-fragment K checksum: true ok, false bad, null n/a. */
+	kOk?: boolean | null;
+	/** FLEX: mail-drop flag (M). */
+	mailDrop?: boolean;
+	/** FLEX: retrieval flag (R) on an alpha first fragment. */
+	retrieval?: boolean;
+	/** FLEX numbered message number (0-63), displayed as N+1; absent otherwise. */
+	msgNumber?: number;
+	/** FLEX numbered: true = new message, false = retransmission. */
+	isNew?: boolean;
+	/** FLEX capcode class: short/long/infoSvc/network/temporary/operMsg/reserved. */
+	capClass?: string;
+	/** FLEX reassembly identity for in-place partial-row updates. */
+	reasmKey?: string;
+	/** FLEX fragments received so far (shown in the PARTIAL progress tag). */
+	fragCount?: number;
+	/** FLEX group delivery: member capcodes (from the slot's assignments). */
+	groupMembers?: number[];
+	/** FLEX: true when a reassembled message is missing fragment(s) (valid partial). */
+	incomplete?: boolean;
+	/** FLEX dedup tag: 'dup' = exact retransmission, 'dup+' = improved (word-combined). */
+	dedup?: 'dup' | 'dup+';
+	/** FLEX air-mode bitrate in bps (1600/3200/6400) for the mode tag. */
+	flexBaud?: number;
+	/** FLEX FSK levels (2 or 4) for the mode tag. */
+	flexLevels?: number;
 }
 
 /** @deprecated Use PagerLogEntry. Kept as an alias during migration. */

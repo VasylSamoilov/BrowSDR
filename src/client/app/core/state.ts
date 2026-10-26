@@ -5,6 +5,7 @@ import type { AcarsStatus, AcarsRecord } from '@/worker/decoders/acars/types';
 import type { AdsbStatus, Aircraft } from '@/worker/decoders/adsb/types';
 import type { POCSAGStatus } from '@/worker/decoders/types';
 import type { GSCStatus } from '@/worker/decoders/types';
+import type { FlexStatus } from '@/worker/decoders/types';
 import type { PagerProtocol } from '@/worker/decoders/charsets';
 import type { RdsLogEntry, Rtl433LogEntry, PagerLogEntry, RdsStations } from '@/app/decoders/types';
 import type { WhisperLogEntry } from '@/app/decoders/whisper.types';
@@ -157,6 +158,8 @@ function createDecoderAndBookmarkState() {
 		pocsagStatus: [] as Array<POCSAGStatus | null>,
 		// Per-VFO GSC link status (sync/baud/BER).
 		gscStatus: [] as Array<GSCStatus | null>,
+		// Per-VFO FLEX link status (lock/stage/mode/cycle/frame/BER/network).
+		flexStatus: [] as Array<FlexStatus | null>,
 		_gscPriorMute: new Map<number, { enabled: boolean; squelchEnabled: boolean }>(),
 		dsdStatus: [] as Array<DSDStatus | null>,
 		ble: {

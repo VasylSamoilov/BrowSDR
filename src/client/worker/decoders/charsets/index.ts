@@ -1,17 +1,24 @@
 /*
- * Pager charset registry — resolves a protocol-scoped charset key to a glyph
+ * Pager charset registry -- resolves a protocol-scoped charset key to a glyph
  * table. POCSAG is populated (26 identities over 19 unique tables); FLEX is a
  * ready empty branch for a later pass.
  */
 
-import type { CharsetEntry, CharsetKey, CharsetRegistry, CharsetTables, Codepage, PagerProtocol } from './types';
+import type { CharsetEntry, CharsetKey, CharsetHandler, CharsetRegistry, CharsetTables, Codepage, PagerProtocol } from './types';
 import { charsetKeyEquals } from './types';
 import { POCSAG_CHARSETS, POCSAG_TABLES } from './pocsag';
 
 export const CHARSETS: CharsetRegistry = {
 	pocsag: POCSAG_CHARSETS,
 	gsc: [], // GSC is default-only (single Table VII alphabet); no codepages.
-	flex: [],
+	// FLEX: default 7-bit ASCII, plus a Kanji identity. FLEX carries no on-wire
+	// signal that a payload is 16-bit Shift-JIS, so Kanji is a user-selected
+	// charset that switches alpha decoding (16-bit chars) and rendering --
+	// selectable like any other codepage, not auto-detected.
+	flex: [
+		{ vendor: 'generic', model: 'generic', codepage: 'ascii', codeBits: 7, label: 'Generic ASCII', tableId: 'generic-ascii' },
+		{ vendor: 'generic', model: 'generic', codepage: 'kanji', codeBits: 16, label: 'Kanji (Shift-JIS)', tableId: 'generic-ascii', handler: 'kanji' },
+	],
 };
 
 const TABLES: Record<PagerProtocol, CharsetTables> = {
@@ -65,5 +72,19 @@ export function pocsagCodepage(key: CharsetKey): Codepage {
 	return resolveCodepage('pocsag', key);
 }
 
-export type { CharsetEntry, CharsetKey, PagerProtocol };
+/** The default FLEX charset key (generic ASCII). */
+export const FLEX_DEFAULT_CHARSET: CharsetKey = DEFAULT_CHARSET.flex;
+
+/**
+ * The decode handler attached to a FLEX charset key, or undefined for a plain
+ * codepage. Selecting a handler charset (e.g. Kanji) does NOT go through the
+ * glyph table -- it sets a flag that switches the decoder's extraction/transform
+ * logic. Returns the handler tag so the decoder can branch on it.
+ */
+export function flexCharsetHandler(key: CharsetKey): CharsetHandler | undefined {
+	const entry = CHARSETS.flex.find((e) => charsetKeyEquals(e, key));
+	return entry?.handler;
+}
+
+export type { CharsetEntry, CharsetKey, CharsetHandler, PagerProtocol };
 export { POCSAG_CHARSETS, POCSAG_TABLES } from './pocsag';

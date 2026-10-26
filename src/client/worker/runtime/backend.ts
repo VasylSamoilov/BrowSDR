@@ -6,6 +6,8 @@ import type {
 	PocsagStatusCallback,
 	GscCallback,
 	GscStatusCallback,
+	FlexCallback,
+	FlexStatusCallback,
 	RdsCallback,
 	Rtl433Callback,
 	AdsbCallback,
@@ -60,6 +62,8 @@ import {
 	setRemoteHostPocsagStatusCallback,
 	setRemoteHostGscCallback,
 	setRemoteHostGscStatusCallback,
+	setRemoteHostFlexCallback,
+	setRemoteHostFlexStatusCallback,
 	setRemoteHostRdsCallback,
 	setRemoteHostRtl433Callback,
 	setRemoteHostAdsbCallback,
@@ -136,6 +140,8 @@ export class Backend {
 	_remoteHostPocsagStatusCb?: HostCallback<Parameters<PocsagStatusCallback>>;
 	_remoteHostGscCb?: HostCallback<Parameters<GscCallback>>;
 	_remoteHostGscStatusCb?: HostCallback<Parameters<GscStatusCallback>>;
+	_remoteHostFlexCb?: HostCallback<Parameters<FlexCallback>>;
+	_remoteHostFlexStatusCb?: HostCallback<Parameters<FlexStatusCallback>>;
 	_remoteHostRdsCb?: HostCallback<Parameters<RdsCallback>>;
 	_remoteHostBleCb?: HostCallback<Parameters<BleCallback>>;
 	_remoteHostAisCb?: HostCallback<Parameters<AisCallback>>;
@@ -215,6 +221,8 @@ export class Backend {
 	setRemoteHostPocsagStatusCallback = setRemoteHostPocsagStatusCallback.bind(this);
 	setRemoteHostGscCallback = setRemoteHostGscCallback.bind(this);
 	setRemoteHostGscStatusCallback = setRemoteHostGscStatusCallback.bind(this);
+	setRemoteHostFlexCallback = setRemoteHostFlexCallback.bind(this);
+	setRemoteHostFlexStatusCallback = setRemoteHostFlexStatusCallback.bind(this);
 	setRemoteHostRdsCallback = setRemoteHostRdsCallback.bind(this);
 	setRemoteHostBleCallback = setRemoteHostBleCallback.bind(this);
 	setRemoteHostAisCallback = setRemoteHostAisCallback.bind(this);
@@ -246,6 +254,8 @@ export class Backend {
 		pocsagStatusCallback: PocsagStatusCallback | null = null,
 		gscCallback: GscCallback | null = null,
 		gscStatusCallback: GscStatusCallback | null = null,
+		flexCallback: FlexCallback | null = null,
+		flexStatusCallback: FlexStatusCallback | null = null,
 		rdsCallback: RdsCallback | null = null,
 		dsdStatusCallback: DsdCallback | null = null,
 		rtl433Callback: Rtl433Callback | null = null,
@@ -261,7 +271,7 @@ export class Backend {
 			spectrumCallback,
 			audioCallback,
 			whisperCallback,
-			{ pocsag: pocsagCallback, pocsagStatus: pocsagStatusCallback, gsc: gscCallback, gscStatus: gscStatusCallback },
+			{ pocsag: pocsagCallback, pocsagStatus: pocsagStatusCallback, gsc: gscCallback, gscStatus: gscStatusCallback, flex: flexCallback, flexStatus: flexStatusCallback },
 			rdsCallback,
 			dsdStatusCallback,
 			rtl433Callback,

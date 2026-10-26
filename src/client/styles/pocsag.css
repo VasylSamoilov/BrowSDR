@@ -244,6 +244,38 @@
 	flex-shrink: 0;
 }
 
+/* FLEX air-mode chip (speed / FSK), styled like the .pocsag-type chips. */
+.pocsag-flex-mode {
+	font-size: 9px;
+	font-weight: 700;
+	padding: 0px 4px;
+	border-radius: 3px;
+	flex-shrink: 0;
+	letter-spacing: 0.5px;
+	background: #004d40;
+	color: #80cbc4;
+}
+
+/* FLEX phase tag, styled like the POCSAG function tag (plain light-purple). */
+.pocsag-flex-phase {
+	color: #b39ddb;
+	font-size: 10px;
+	flex-shrink: 0;
+}
+
+/* FLEX polarity, matching the POCSAG/GSC status NORM/INV convention. */
+.pocsag-flex-pol {
+	font-size: 9px;
+	font-weight: 700;
+	flex-shrink: 0;
+}
+.pocsag-flex-pol-norm {
+	color: #88aacc;
+}
+.pocsag-flex-pol-inv {
+	color: #ffcc44;
+}
+
 .pocsag-text {
 	color: #e0e0e0;
 	overflow: hidden;

@@ -33,7 +33,18 @@ export interface CharsetEntry {
 	codeBits: number; // 7 for POCSAG/FLEX
 	label: string; // human-readable UI label
 	tableId: string; // key into the protocol's shared table map
+	/**
+	 * Optional decode handler attached to this charset. A plain codepage needs
+	 * none (it is a glyph-table remap). Some charsets instead attach behavior
+	 * the table model cannot express: 'kanji' switches FLEX alpha extraction to
+	 * 16-bit Shift-JIS, 'rot13' applies a ROT-13 transform (the Skyper pattern).
+	 * The decoder reads this tag to select the handler.
+	 */
+	handler?: CharsetHandler;
 }
+
+/** A decode behavior a charset can attach beyond a glyph-table remap. */
+export type CharsetHandler = 'kanji' | 'rot13';
 
 /** Unique glyph tables for a protocol, keyed by tableId. */
 export type CharsetTables = Record<string, Codepage>;

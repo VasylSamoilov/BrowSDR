@@ -5,11 +5,12 @@ import { errorMessage, errorName } from '@/platform/errors';
 import type { AppInstance } from '@/app/core/receiver.types';
 import * as Comlink from 'comlink';
 
-/** The four pager-decoder callbacks (POCSAG msg/status, GSC msg/status) as a
- * tuple of individually Comlink-proxied functions, to be SPREAD as top-level
- * arguments into startRxStream. They must stay separate top-level args: Comlink
- * only transfers a callback it sees as a direct argument, so wrapping them in a
- * plain object triggers a structured-clone DataCloneError on postMessage. */
+/** The six pager-decoder callbacks (POCSAG msg/status, GSC msg/status, FLEX
+ * msg/status) as a tuple of individually Comlink-proxied functions, to be
+ * SPREAD as top-level arguments into startRxStream. They must stay separate
+ * top-level args: Comlink only transfers a callback it sees as a direct
+ * argument, so wrapping them in a plain object triggers a structured-clone
+ * DataCloneError on postMessage. */
 function pagerProxies(app: AppInstance) {
 	return [
 		Comlink.proxy((vfoIndex: number, freq: number, msg: Parameters<AppInstance['_onPocsagMessage']>[2]) =>
@@ -23,6 +24,12 @@ function pagerProxies(app: AppInstance) {
 		),
 		Comlink.proxy((vfoIndex: number, freq: number, status: Parameters<AppInstance['_onGscStatus']>[2]) =>
 			app._onGscStatus(vfoIndex, freq, status),
+		),
+		Comlink.proxy((vfoIndex: number, freq: number, msg: Parameters<AppInstance['_onFlexMessage']>[2]) =>
+			app._onFlexMessage(vfoIndex, freq, msg),
+		),
+		Comlink.proxy((vfoIndex: number, freq: number, status: Parameters<AppInstance['_onFlexStatus']>[2]) =>
+			app._onFlexStatus(vfoIndex, freq, status),
 		),
 	] as const;
 }

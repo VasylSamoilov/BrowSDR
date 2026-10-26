@@ -5,6 +5,7 @@ import type { DspAudio } from '@/worker/runtime/dsp-messages.types';
 import * as Comlink from 'comlink';
 import { POCSAGDecoder } from '@/worker/decoders/pocsag';
 import { GSCDecoder } from '@/worker/decoders/golay';
+import { FlexDecoder } from '@/worker/decoders/flex/decoder';
 import type { VfoParams, VfoState, PerfCounters } from '@/worker/runtime/types';
 import { AUDIO_RATE } from '@/worker/runtime/constants';
 import type { Backend } from '@/worker/runtime/backend';
@@ -13,7 +14,7 @@ import { appendPcm, mixLength } from './audio-queue';
 /** Whisper transcription runs on a VFO only when no pager protocol is decoding
  * it (pager audio is data, not speech). */
 function shouldFeedWhisper(backend: Backend, params: VfoParams): boolean {
-	return !!backend._whisperEnabled && !params.pocsag && !params.gsc;
+	return !!backend._whisperEnabled && !params.pocsag && !params.gsc && !params.flex;
 }
 
 export function installWorkerAudioHandler(
@@ -126,6 +127,44 @@ export function decodeLocalPager(
 
 	// GSC runs on the same NFM audio; both can be enabled on one VFO.
 	decodeLocalGsc(pager, params, state, v, out);
+	decodeLocalFlex(pager, params, state, v, out);
+}
+
+/** FLEX decode branch (separate so decodeLocalPager stays simple). */
+function decodeLocalFlex(
+	pager: PagerCallbacks,
+	params: VfoParams,
+	state: VfoState,
+	v: number,
+	out: Float32Array<ArrayBuffer>,
+) {
+	if (pager.flex && params.flex && params.mode === 'nfm') {
+		if (!state.flexDecoder) {
+			state.flexDecoder = new FlexDecoder(
+				AUDIO_RATE,
+				(fmsg) => {
+					pager.flex?.(v, params.freq, fmsg);
+				},
+				params.flexCharset,
+			);
+			state.flexCharset = params.flexCharset;
+		} else if (params.flexCharset !== state.flexCharset) {
+			// Live charset change (e.g. ASCII <-> Kanji) re-points the decoder.
+			if (params.flexCharset) state.flexDecoder.setCharset(params.flexCharset);
+			state.flexCharset = params.flexCharset;
+		}
+		state.flexDecoder.process(out);
+		if (pager.flexStatus) {
+			const now = Date.now();
+			if (state.flexStatusAt == null || now - state.flexStatusAt >= 500) {
+				state.flexStatusAt = now;
+				pager.flexStatus(v, params.freq, state.flexDecoder.getStatus());
+			}
+		}
+	} else if (!params.flex && state.flexDecoder) {
+		state.flexDecoder = null;
+		state.flexStatusAt = undefined;
+	}
 }
 
 /** GSC decode branch (separate so decodeLocalPager stays simple). */

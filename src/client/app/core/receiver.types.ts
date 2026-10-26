@@ -20,6 +20,7 @@ import type { WorkspaceInstance } from '@/app/workspace/types';
 import type { WhisperMessage } from '@/transcription/types';
 import type { RDSMessage, POCSAGMessage, POCSAGStatus, Rtl433Protocol, Rtl433Message } from '@/worker/decoders/types';
 import type { GSCMessage, GSCStatus } from '@/worker/decoders/types';
+import type { FlexMessage, FlexStatus } from '@/worker/decoders/types';
 import type { PagerLogEntry } from '@/app/decoders/types';
 import type { PagerProtocol } from '@/worker/decoders/charsets';
 import type { DSDStatus } from '@/worker/decoders/dsd/types';
@@ -179,6 +180,8 @@ export interface ReceiverMethods {
 	pagerCharsetGroups(protocol: PagerProtocol): Array<{ vendor: string; items: Array<{ value: string; label: string }> }>;
 	pocsagCharsetValue(i: number): string;
 	setPocsagCharset(i: number, value: string): void;
+	flexCharsetValue(i: number): string;
+	setFlexCharset(i: number, value: string): void;
 	setPocsagMode(i: number, value: string): void;
 	pocsagDisplayText(text: string): string;
 	_onPocsagMessage(vfoIndex: number, freqMhz: number, msg: POCSAGMessage): void;
@@ -191,6 +194,15 @@ export interface ReceiverMethods {
 	_gscAutoListen(vfoIndex: number, event: 'start' | 'stop'): void;
 	/** Saved mute/squelch state per VFO while auto-listen holds the channel open. */
 	_gscPriorMute: Map<number, { enabled: boolean; squelchEnabled: boolean }>;
+	toggleFlex(i: number): void;
+	_onFlexMessage(vfoIndex: number, freqMhz: number, msg: FlexMessage): void;
+	_onFlexStatus(vfoIndex: number, freqMhz: number, status: FlexStatus): void;
+	flexTzLabel(i: number): string;
+	flexCapClassLabel(cls: string): string;
+	flexMembers(members: number[]): string;
+	flexHasGroups(i: number): boolean;
+	flexGroupCellColor(state: string): string;
+	flexGroupSlotTitle(i: number, s: number): string;
 	clearPager(): void;
 	exportPager(): void;
 	_onDsdStatus(vfoIndex: number, status: DSDStatus): void;

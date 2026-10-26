@@ -15,16 +15,38 @@
 		</UiToolHeader>
 		<div class="pocsag-body" ref="pagerBody">
 			<UiEmptyState v-if="pagerRows().length === 0" variant="pocsag">
-				No messages yet. Enable a pager protocol (POCSAG) on an NFM VFO and tune to a paging frequency.
+				No messages yet. Enable a pager protocol (POCSAG, GSC or FLEX) on an NFM VFO and tune to a paging frequency.
 			</UiEmptyState>
 			<div v-for="(entry, i) in pagerRows()" :key="i" class="pocsag-entry"
-				:style="entry.vfoIndex != null ? { borderLeftColor: vfoColor(entry.vfoIndex) } : {}">
+				:style="[entry.vfoIndex != null ? { borderLeftColor: vfoColor(entry.vfoIndex) } : {}, (entry.protocol === 'flex' && entry.reasmKey && !entry.complete) ? { borderLeftColor: '#ffb74d', opacity: 0.65 } : {}]">
 				<span class="pocsag-vfo-dot" v-if="entry.vfoIndex != null" :style="{ background: vfoColor(entry.vfoIndex) }" :title="'VFO ' + (entry.vfoIndex + 1)"></span>
 				<span class="pocsag-time">{{ entry.time }}</span>
 				<span class="pocsag-proto" :title="'Protocol: ' + entry.protocol" style="flex-shrink:0;font-size:9px;font-weight:700;letter-spacing:0.5px;padding:1px 4px;border-radius:3px;background:rgba(255,255,255,0.1);">{{ entry.protocol.toUpperCase() }}</span>
 				<span class="pocsag-freq" :style="entry.vfoIndex != null ? { color: vfoColor(entry.vfoIndex) } : {}">{{ entry.freq }}</span>
 				<span class="pocsag-capcode" title="Capcode (pager address)">CAP:{{ entry.capcode }}</span>
+				<span v-if="entry.protocol === 'flex' && entry.capClass && entry.capClass !== 'short' && entry.capClass !== 'long'" :title="'Capcode class: ' + entry.capClass" style="color:#ce93d8;flex-shrink:0;font-size:9px;font-weight:700;text-transform:uppercase;">{{ flexCapClassLabel(entry.capClass) }}</span>
+				<span v-if="entry.protocol === 'flex' && entry.groupMembers && entry.groupMembers.length" :title="'Group members: ' + flexMembers(entry.groupMembers)" style="color:#80cbc4;flex-shrink:0;font-size:9px;font-weight:700;">&#128101;{{ entry.groupMembers.length }}</span>
 				<span class="pocsag-func" v-if="entry.func != null" title="Function / sub-address (A-D)" style="color:#b39ddb;flex-shrink:0;font-size:10px;">F:{{ ['A','B','C','D'][entry.func] || '?' }}</span>
+				<!-- FLEX per-message flags: phase (func-tag style), polarity (NORM/INV like POCSAG/GSC) -->
+				<span v-if="entry.protocol === 'flex' && entry.phase" class="pocsag-flex-phase" title="FLEX phase (A-D)">PH:{{ entry.phase }}</span>
+				<span v-if="entry.protocol === 'flex' && entry.flexCycle != null && entry.flexCycle >= 0" class="pocsag-flex-phase" title="FLEX cycle / frame">C{{ String(entry.flexCycle).padStart(2, '0') }}/F{{ String(entry.flexFrame).padStart(3, '0') }}</span>
+				<span v-if="entry.protocol === 'flex' && entry.flexBaud" class="pocsag-flex-pol" :class="entry.inverted ? 'pocsag-flex-pol-inv' : 'pocsag-flex-pol-norm'" :title="entry.inverted ? 'Inverted polarity' : 'Normal polarity'">{{ entry.inverted ? 'INV' : 'NORM' }}</span>
+				<span v-if="entry.protocol === 'flex' && entry.reasmKey && !entry.complete" title="Incomplete message, reassembling (updates in place)" style="color:#ffb74d;flex-shrink:0;font-size:9px;font-weight:700;">&#8943; PARTIAL<template v-if="entry.fragCount"> ({{ entry.fragCount }})</template></span>
+				<span v-else-if="entry.protocol === 'flex' && entry.reasmKey && entry.complete" title="Reassembled from fragments" style="color:#4fc3f7;flex-shrink:0;font-size:9px;font-weight:700;">REASM<template v-if="entry.fragCount"> ({{ entry.fragCount }})</template></span>
+				<span v-if="entry.protocol === 'flex' && entry.complete && entry.incomplete" title="Reassembled but missing fragment(s) -- partial content" style="color:#ff8a65;flex-shrink:0;font-size:9px;font-weight:700;">INCOMPLETE</span>
+				<span v-if="entry.protocol === 'flex' && entry.dedup === 'dup'" title="Exact retransmission (duplicate)" style="color:#bbb;flex-shrink:0;font-size:9px;font-weight:700;">DUP</span>
+				<span v-else-if="entry.protocol === 'flex' && entry.dedup === 'dup+'" title="Improved retransmission: cleaner words merged from this copy and re-decoded" style="color:#66bb6a;flex-shrink:0;font-size:9px;font-weight:700;">DUP+</span>
+				<span v-if="entry.protocol === 'flex' && entry.msgNumber != null" title="Numbered message: number (displayed N+1)" style="color:#90caf9;flex-shrink:0;font-size:9px;">#{{ entry.msgNumber + 1 }}</span>
+				<span v-if="entry.protocol === 'flex' && entry.isNew === false" title="Retransmission of an earlier message" style="color:#bbb;flex-shrink:0;font-size:9px;font-weight:700;">RETX</span>
+				<span v-else-if="entry.protocol === 'flex' && entry.isNew === true" title="New message" style="color:#66bb6a;flex-shrink:0;font-size:9px;font-weight:700;">NEW</span>
+				<span v-if="entry.protocol === 'flex' && entry.mailDrop" title="Mail drop (stored message)" style="color:#ce93d8;flex-shrink:0;font-size:9px;font-weight:700;">MD</span>
+				<span v-if="entry.protocol === 'flex' && entry.retrieval" title="Retrieval flag (R)" style="color:#90caf9;flex-shrink:0;font-size:9px;font-weight:700;">R</span>
+				<!-- FLEX checksum (K) + signature (S) quality, colored ok/bad -->
+				<span v-if="entry.protocol === 'flex' && entry.kOk === true" title="K checksum OK" style="color:#66bb6a;flex-shrink:0;font-size:9px;font-weight:700;">K&#10003;</span>
+				<span v-else-if="entry.protocol === 'flex' && entry.kOk === false" title="K checksum FAILED" style="color:#ff5252;flex-shrink:0;font-size:9px;font-weight:700;">K&#10007;</span>
+				<span v-if="entry.protocol === 'flex' && entry.sigOk === true" title="Signature OK" style="color:#66bb6a;flex-shrink:0;font-size:9px;font-weight:700;">S&#10003;</span>
+				<span v-else-if="entry.protocol === 'flex' && entry.sigOk === false" title="Signature FAILED" style="color:#ff5252;flex-shrink:0;font-size:9px;font-weight:700;">S&#10007;</span>
+				<span v-if="entry.protocol === 'flex' && entry.flexBaud" class="pocsag-flex-mode" :title="'Air mode: ' + entry.flexBaud + 'bps / ' + entry.flexLevels + '-FSK'">{{ entry.flexBaud }}/{{ entry.flexLevels }}FSK</span>
 				<span class="pocsag-type" :class="'pocsag-type-' + (entry.voiceEvent ? 'voice' : entry.type)">{{ entry.type.toUpperCase() }}</span>
 				<span class="pocsag-baud" v-if="entry.baud">{{ entry.baud }}Bd</span>
 				<span class="pocsag-check" v-if="entry.uncorrectableCount" title="Uncorrectable codewords (FEC decode failed)" style="flex-shrink:0;font-size:9px;font-weight:700;color:#ff5252;">✗{{ entry.uncorrectableCount }}</span>

@@ -92,6 +92,9 @@ export const vfoMethods = {
 				pocsagMode: vfo.pocsagMode,
 				pocsagSecondGuess: vfo.pocsagSecondGuess,
 				gsc: vfo.gsc,
+				flex: vfo.flex,
+				// Plain clone (same reactive-proxy reason as pocsagCharset above).
+				flexCharset: vfo.flexCharset ? { ...vfo.flexCharset } : undefined,
 				adsb: vfo.adsb && inBandwidth,
 				ais: vfo.ais && inBandwidth,
 				radiosonde: vfo.radiosonde && inBandwidth,
