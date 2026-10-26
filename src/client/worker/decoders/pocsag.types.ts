@@ -51,4 +51,8 @@ export interface POCSAGStatus {
 	ber: number | null;
 	/** Codewords observed in the current rolling window (for UI confidence). */
 	codewords: number;
+	/** Locked sub-stage (what is being received), or null while hunting:
+	 * 'batch' = reading a 16-codeword batch, 'page' = a multi-codeword page is
+	 * in progress. Mirrors the FLEX pipeline-stage chip. */
+	stage?: 'batch' | 'page' | null;
 }

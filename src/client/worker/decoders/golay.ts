@@ -1,4 +1,4 @@
-import type { GSCMessage, GSCRxState, GSCVoiceEndReason } from './gsc.types';
+import type { GSCMessage, GSCRxState, GSCVoiceEndReason, GSCStatus } from './gsc.types';
 import { GSC_CHAR_OK, GSC_CHAR_CORRECTED, GSC_CHAR_UNCORRECTABLE } from './gsc.types';
 import { FskBitSlicer, BerWindow } from './fsk-frontend';
 import { initFec, decodeGolay, decodeBch, calcBch, readDupGolay, deinterleaveBch } from './golay-fec';
@@ -174,8 +174,9 @@ export class GSCDecoder {
 		this.slicer.process(samples);
 	}
 
-	getStatus(): { synced: boolean; baud: number | null; inverted: boolean; ber: number | null; codewords: number } {
-		return { synced: this.synced, baud: this.synced ? BAUD : null, inverted: this.inverted, ber: this.ber.ber, codewords: this.ber.count };
+	getStatus(): GSCStatus {
+		const stage = this.synced ? (this.state === 'voice' || this.voiceActive ? 'voice' : 'data') : null;
+		return { synced: this.synced, baud: this.synced ? BAUD : null, inverted: this.inverted, ber: this.ber.ber, codewords: this.ber.count, stage };
 	}
 
 	/** Resolve a 46-bit dup window into a 23-bit Golay codeword (LSB-first,

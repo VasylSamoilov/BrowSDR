@@ -825,6 +825,7 @@ export class _POCSAGSingleBaud {
 			inverted: this.inverted,
 			ber: this.ber.ber,
 			codewords: this.ber.count,
+			stage: synced ? (this.pageActive ? 'page' : 'batch') : null,
 		};
 	}
 }

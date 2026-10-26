@@ -44,6 +44,10 @@ export interface GSCStatus {
 	inverted: boolean;
 	ber: number | null;
 	codewords: number;
+	/** Locked sub-stage (what is being received), or null while hunting:
+	 * 'data' = collecting a data batch, 'voice' = a voice-alert page is active.
+	 * Mirrors the FLEX pipeline-stage chip. */
+	stage?: 'data' | 'voice' | null;
 }
 
 /** GSC receiver sync state. */

@@ -100,6 +100,7 @@
 				<span :style="{ width:'8px',height:'8px',borderRadius:'50%',display:'inline-block',flexShrink:0,background: receiver.pocsagStatus[i]?.synced ? '#44cc44' : '#666' }"></span>
 				<span style="font-weight:700;color:#fff;">POCSAG {{ receiver.pocsagStatus[i]?.synced ? 'SYNC' : 'HUNT' }}</span>
 			</span>
+			<span v-if="receiver.pocsagStatus[i]?.stage" style="color:#b39ddb;text-transform:uppercase;" title="What is being received">{{ receiver.pocsagStatus[i].stage }}</span>
 			<span v-if="receiver.pocsagStatus[i]?.baud" style="color:#aaa;">{{ receiver.pocsagStatus[i].baud }} Bd</span>
 			<span v-if="receiver.pocsagStatus[i]?.synced" :style="{ color: receiver.pocsagStatus[i]?.inverted ? '#ffcc44' : '#88aacc' }" title="Signal polarity">{{ receiver.pocsagStatus[i]?.inverted ? 'INV' : 'NORM' }}</span>
 			<span v-if="receiver.pocsagStatus[i]?.ber != null"
@@ -125,6 +126,7 @@
 				<span style="font-weight:700;color:#fff;">GSC {{ receiver.gscStatus[i]?.synced ? 'SYNC' : 'HUNT' }}</span>
 			</span>
 			<span v-if="receiver.gscStatus[i]?.baud" style="color:#aaa;">{{ receiver.gscStatus[i].baud }} Bd</span>
+			<span v-if="receiver.gscStatus[i]?.stage" style="color:#b39ddb;text-transform:uppercase;" title="What is being received">{{ receiver.gscStatus[i].stage }}</span>
 			<span v-if="receiver.gscStatus[i]?.synced" :style="{ color: receiver.gscStatus[i]?.inverted ? '#ffcc44' : '#88aacc' }" title="Signal polarity">{{ receiver.gscStatus[i]?.inverted ? 'INV' : 'NORM' }}</span>
 			<span v-if="receiver.gscStatus[i]?.ber != null"
 				:style="{ color: receiver.gscStatus[i].ber < 0.01 ? '#44cc44' : (receiver.gscStatus[i].ber < 0.05 ? '#ffcc44' : '#ff6644') }">
