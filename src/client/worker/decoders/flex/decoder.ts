@@ -13,7 +13,7 @@ import { FlexFrontend, RX_STATE_SYNC1, RX_STATE_FIW, RX_STATE_SYNC2, RX_STATE_DA
 import { FlexFrameDecoder } from './frame';
 import { formatFlexTime } from './flextime';
 import type { FlexMode, FlexFiw, FlexPhaseData, FlexMessage } from './types';
-import type { FlexStatus, FlexRxStage } from '@/worker/decoders/types';
+import type { FlexStatus, FlexRxStage } from './types';
 import type { CharsetKey } from '@/worker/decoders/charsets';
 import { FLEX_DEFAULT_CHARSET, flexCharsetHandler } from '@/worker/decoders/charsets';
 

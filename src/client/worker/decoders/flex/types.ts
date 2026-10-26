@@ -1,5 +1,65 @@
 /** Types for the FLEX front end. */
 
+/** FLEX receiver pipeline stage, surfaced for the live status bar. */
+export type FlexRxStage = 'hunt' | 'sync1' | 'fiw' | 'sync2' | 'data';
+
+/**
+ * Live link status for a FLEX VFO. FLEX has a richer receiver state machine
+ * than POCSAG/GSC: a PLL lock, a multi-stage sync pipeline (S1 -> FIW -> S2 ->
+ * DATA), a selectable air mode (2/4FSK at 1600/3200 baud), signal polarity,
+ * and running cycle/frame counters from the last decoded FIW.
+ */
+export interface FlexStatus {
+	/** PLL symbol-timing lock. */
+	locked: boolean;
+	/** Current pipeline stage. */
+	stage: FlexRxStage;
+	/** Signal polarity: true when the air signal is inverted. */
+	inverted: boolean;
+	/** Air-mode label (e.g. "A4 (6400bps/4FSK)"), or null before sync. */
+	mode: string | null;
+	/** Data symbol rate in baud (1600 or 3200), or null before sync. */
+	baud: number | null;
+	/** Modulation levels: 2 (2FSK) or 4 (4FSK), or null before sync. */
+	levels: number | null;
+	/** Cycle number 0-14 from the last decoded FIW, or null. */
+	cycle: number | null;
+	/** Frame number 0-127 from the last decoded FIW, or null. */
+	frame: number | null;
+	/** Smoothed bit-error rate (0..1): errored bits (BCH-corrected + full
+	 * codeword for uncorrectable) over received bits, or null before data. */
+	ber: number | null;
+	/** Simulcast local channel ID (9-bit, from BIW SSID1), or null. */
+	localId: number | null;
+	/** Coverage zone (5-bit, from BIW SSID1), or null. */
+	coverageZone: number | null;
+	/** Country code (from BIW SSID2), or null. */
+	countryCode: number | null;
+	/** SSID2 traffic-management flags (4-bit), or null. */
+	tmf?: number | null;
+	/** Network date "YYYY-MM-DD" from the last BIW DATE word, or null. */
+	date: string | null;
+	/** Network local time "HH:MM:SS" from the last BIW TIME word, or null. */
+	time: string | null;
+	/** Timezone offset from UTC in minutes (from BIW SysInfo TZ), or null. */
+	tzOffsetMin: number | null;
+	/** Daylight-saving active (from BIW SysInfo DST flag), or null. */
+	dst?: boolean | null;
+	/** Temporary-address (group) slots for the active polarity: 16 entries,
+	 * each 'idle' | 'registered' | 'delivering', with target frame + members. */
+	groupSlots?: Array<{ state: string; targetFrame: number; members: number[] }>;
+	/** In-flight fragment reassembly buffers for the active polarity. */
+	reasmBuffers?: number;
+	/** Most recent non-mode sync-code detection (ERS or a reserved code), or
+	 * null. ERS (Ar) is reported once per burst; reserved codes only on a
+	 * 100%-error-free match. Carries a human label and the raw 16-bit code. */
+	lastSyncEvent?: { label: string; code: number; ers: boolean } | null;
+	/** Resolution of the confirmed network time in seconds: 7.5 (coarse, TIME
+	 * word only) or 0.9375 (refined, when the extended-seconds TZ/SysInfo word
+	 * is also confirmed). Null when no time is confirmed (ARIB 3.7.2). */
+	timePrecisionSec?: number | null;
+}
+
 /** A FLEX air mode, selected by the S1 sync code (frame.h FLEX_SYNC_Ax). */
 export interface FlexMode {
 	syncCode: number;

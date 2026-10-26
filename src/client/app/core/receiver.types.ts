@@ -183,9 +183,9 @@ export interface ReceiverMethods {
 	flexCharsetValue(i: number): string;
 	setFlexCharset(i: number, value: string): void;
 	setPocsagMode(i: number, value: string): void;
-	pocsagDisplayText(text: string): string;
+	pagerDisplayText(text: string): string;
 	_onPocsagMessage(vfoIndex: number, freqMhz: number, msg: POCSAGMessage): void;
-	pocsagSegments(entry: PagerLogEntry): Array<{ text: string; status: number }>;
+	pagerSegments(entry: PagerLogEntry): Array<{ text: string; status: number }>;
 	_onPocsagStatus(vfoIndex: number, freqMhz: number, status: POCSAGStatus): void;
 	toggleGsc(i: number): void;
 	_onGscMessage(vfoIndex: number, freqMhz: number, msg: GSCMessage): void;

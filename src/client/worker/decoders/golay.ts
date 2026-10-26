@@ -1,5 +1,5 @@
-import type { GSCMessage, GSCRxState, GSCVoiceEndReason } from './types';
-import { GSC_CHAR_OK, GSC_CHAR_CORRECTED, GSC_CHAR_UNCORRECTABLE } from './types';
+import type { GSCMessage, GSCRxState, GSCVoiceEndReason } from './gsc.types';
+import { GSC_CHAR_OK, GSC_CHAR_CORRECTED, GSC_CHAR_UNCORRECTABLE } from './gsc.types';
 import { FskBitSlicer, BerWindow } from './fsk-frontend';
 import { initFec, decodeGolay, decodeBch, calcBch, readDupGolay, deinterleaveBch } from './golay-fec';
 import { ALPHA_FILL, NUMERIC_FILL, buildAlpha, buildNumeric, scoreAlpha, scoreNumeric } from './golay-text';

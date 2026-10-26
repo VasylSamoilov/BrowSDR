@@ -1,5 +1,5 @@
-import type { POCSAGMessage, POCSAGStatus, PocsagMode } from './types';
-import { POCSAG_CHAR_CORRECTED, POCSAG_CHAR_OK, POCSAG_CHAR_UNCORRECTABLE } from './types';
+import type { POCSAGMessage, POCSAGStatus, PocsagMode } from './pocsag.types';
+import { POCSAG_CHAR_CORRECTED, POCSAG_CHAR_OK, POCSAG_CHAR_UNCORRECTABLE } from './pocsag.types';
 import type { CharsetKey } from './charsets';
 import { pocsagCodepage, POCSAG_DEFAULT_CHARSET } from './charsets';
 import { FskBitSlicer, BerWindow } from './fsk-frontend';
