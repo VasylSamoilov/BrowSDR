@@ -281,8 +281,8 @@
 		<UiFormRow v-if="vfo.mode === 'wfm' && vfo.rds" style="align-items: center;">
 			<label :for="receiver.receiverId + '-rds-region-' + i" style="flex: 0 0 120px; opacity: 0.7;">RDS Region</label>
 			<UiSelect :id="receiver.receiverId + '-rds-region-' + i" :value="vfo.rdsRegion || 'eu'" @change="setRdsRegion(i, $event.target.value)" style="width: 130px; margin-left: auto;" title="RDS region: sets programme-type labels and auto-selects de-emphasis (EU=50µs, NA=75µs).">
-				<option value="eu">Europe</option>
-				<option value="na">North America</option>
+				<option value="eu">RDS (Europe)</option>
+				<option value="na">RBDS (US)</option>
 			</UiSelect>
 		</UiFormRow>
 

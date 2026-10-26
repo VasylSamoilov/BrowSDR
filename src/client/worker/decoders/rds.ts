@@ -346,18 +346,12 @@ export class RDSDecoder {
 	// Symbol timing recovery
 	private samplesPerBit: number;
 	private clockPhase = 0;
-	private prevBpskI = 0;
-	private prevBpskQ = 0;
 	private clockPowerI = 0;
 	private clockPowerQ = 0;
 	private clockUsesQ = false;
 	private symbolIndex = 0;
 	private pairEnergy = [0, 0];
 	private pairParity = -1;
-	private prevHalfI = 0;
-	private prevHalfQ = 0;
-	private prevSymI = 0;
-	private prevSymQ = 0;
 
 	// Block assembly
 	private shiftReg = 0;
@@ -371,6 +365,13 @@ export class RDSDecoder {
 	private blockValid: boolean[] = [false, false, false, false];
 	private blockCorrected: boolean[] = [false, false, false, false]; // true = passed via BCH correction
 	private blockErrors = 0;
+	private nbUnsync = 0;  // consecutive groups with no valid blocks (group-level sync loss)
+
+	// Integrate-and-dump state
+	private integrator = 0;   // current half-symbol integrator
+	private prevIntegral = 0; // previous half-symbol integrated value (for biphase pair sum)
+	private prevBb = 0;       // previous baseband sample (for zero-crossing clock recovery)
+	private prevSymSign = 0;  // sign of previous symbol (for differential decode)
 
 	// BER tracking -- rolling window over last 100 blocks
 	private readonly BER_WINDOW = 100;
@@ -503,45 +504,63 @@ export class RDSDecoder {
 			let filtQ = sample * sin3;
 			for (let k = 0; k < this.bqQ.length; k++) filtQ = this.bqQ[k].process(filtQ);
 
-			// Pick the stronger quadrature for clock recovery
+			// Pick the stronger quadrature for clock recovery and integration
 			this.clockPowerI += 0.001 * (filtI * filtI - this.clockPowerI);
 			this.clockPowerQ += 0.001 * (filtQ * filtQ - this.clockPowerQ);
 			if (this.clockPowerQ > this.clockPowerI * 2) this.clockUsesQ = true;
 			else if (this.clockPowerI > this.clockPowerQ * 2) this.clockUsesQ = false;
 
-			const timing  = this.clockUsesQ ? filtQ : filtI;
-			const previous = this.clockUsesQ ? this.prevBpskQ : this.prevBpskI;
+			const bb = this.clockUsesQ ? filtQ : filtI;
 			const symbolPeriod = this.samplesPerBit / 2;
+
+			// Clock recovery: PLL on zero-crossings of the baseband signal
 			const prevPhase = this.clockPhase;
 			this.clockPhase += 1;
-			if (timing > 0 !== previous > 0) {
+			if ((bb > 0) !== (this.prevBb > 0)) {
 				const error = this.clockPhase > symbolPeriod / 2 ? this.clockPhase - symbolPeriod : this.clockPhase;
 				this.clockPhase -= error * 0.05;
 			}
-			this.prevBpskI = filtI; this.prevBpskQ = filtQ;
+			this.prevBb = bb;
+
+			// Integrate-and-dump: accumulate bb * clock_sign into integrator.
+			// The clock sign flips at each half-symbol boundary, making the
+			// integrator accumulate +bb for one half and -bb for the next.
+			// At the dump edge (sign flip) the accumulated sum is the symbol energy.
+			const clockSign = this.clockPhase < symbolPeriod / 2 ? 1 : -1;
+			this.integrator += bb * clockSign;
 
 			if (this.clockPhase >= symbolPeriod / 2 && prevPhase < symbolPeriod / 2) {
-				const symI = this.prevHalfI - filtI;
-				const symQ = this.prevHalfQ - filtQ;
+				// Half-symbol boundary: track which half-period we're in for parity
 				const parity = this.symbolIndex & 1;
-				this.pairEnergy[parity] += symI * symI + symQ * symQ;
-				if ((this.symbolIndex & 127) === 127) {
+				const energy = this.integrator * this.integrator;
+				this.pairEnergy[parity] += energy;
+
+				// Dump at full symbol (every 2 half-periods) and make bit decision
+				if (parity === this.pairParity) {
+					// Biphase: symbol decision = sum of this half + previous half (integrate-and-dump)
+					const symbolSum = this.integrator + this.prevIntegral;
+					// Differential decode: bit = current symbol sign != previous symbol sign
+					const curSign = this.integrator >= 0 ? 1 : -1;
+					const prevSign = this.prevSymSign;
+					const bit = curSign !== prevSign ? 1 : 0;
+					this.prevSymSign = curSign;
+					this.processBit(bit);
+					void symbolSum;
+				}
+				this.prevIntegral = this.integrator;
+				this.integrator = 0;
+				this.symbolIndex++;
+
+				// Every 800 half-periods re-evaluate biphase frame alignment.
+				// Switch silently -- do NOT lose sync.
+				if ((this.symbolIndex & 799) === 0) {
 					const nextParity = this.pairEnergy[0] > this.pairEnergy[1] ? 0 : 1;
 					if (nextParity !== this.pairParity) {
 						this.pairParity = nextParity;
-						this.prevSymI = 0; this.prevSymQ = 0;
-						this.synced = false; this.bitCount = 0;
-						this.blockValid.fill(false);
+						this.prevSymSign = 0;
 					}
 					this.pairEnergy.fill(0);
 				}
-				if (parity === this.pairParity) {
-					const diffProd = symI * this.prevSymI + symQ * this.prevSymQ;
-					this.processBit(diffProd < 0 ? 1 : 0);
-					this.prevSymI = symI; this.prevSymQ = symQ;
-				}
-				this.prevHalfI = filtI; this.prevHalfQ = filtQ;
-				this.symbolIndex++;
 			}
 			if (this.clockPhase >= symbolPeriod) this.clockPhase -= symbolPeriod;
 		}
@@ -625,7 +644,18 @@ export class RDSDecoder {
 
 		this.blockIndex = (this.blockIndex + 1) & 3;
 		if (this.blockIndex === 0 && this.goodBlocks >= 2) this.decodeGroup();
-		if (this.blockIndex === 0) { this.goodBlocks = 0; this.blockValid.fill(false); }
+		if (this.blockIndex === 0) {
+			// Group-level sync loss: lose sync only after 4 consecutive groups
+			// with no valid blocks at all (like osmocom's nb_unsync >= SYNC_LOSS_GROUPS)
+			if (this.goodBlocks === 0) {
+				if (++this.nbUnsync >= 4) {
+					this.synced = false; this.nbUnsync = 0;
+				}
+			} else {
+				this.nbUnsync = 0;
+			}
+			this.goodBlocks = 0; this.blockValid.fill(false); this.blockErrors = 0;
+		}
 	}
 
 	// quality: 0=clean block, 1=BCH-corrected, 2=uncorrectable/lost
@@ -1204,10 +1234,11 @@ export class RDSDecoder {
 		this.rtPlusGroup = -1; this.rtPlusText1 = ''; this.rtPlusText2 = '';
 		this.phasorRe = 1; this.phasorIm = 0; this.phasorCount = 0;
 		this.pilotMixI = 0; this.pilotMixQ = 0; this.pilotBpf.reset();
-		this.clockPhase = 0; this.prevBpskI = 0; this.prevBpskQ = 0;
+		this.clockPhase = 0; this.prevBb = 0;
+		this.integrator = 0; this.prevIntegral = 0; this.prevSymSign = 0;
 		this.clockPowerI = 0; this.clockPowerQ = 0; this.clockUsesQ = false;
 		this.symbolIndex = 0; this.pairEnergy.fill(0); this.pairParity = -1;
-		this.prevHalfI = 0; this.prevHalfQ = 0; this.prevSymI = 0; this.prevSymQ = 0;
+		this.nbUnsync = 0;
 		// Reset BER and pilot but keep them across reset (station re-tune)
 		this.berHistory.fill(1); this.berHead = 0; this.berSum = this.BER_WINDOW;
 		this.berCorrectedBlocks = 0; this.berTotalBlocks = 0;
