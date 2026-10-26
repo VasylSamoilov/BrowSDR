@@ -93,6 +93,22 @@ export function decodeLocalPager(
 	v: number,
 	out: Float32Array<ArrayBuffer>,
 ) {
+	// POCSAG, GSC and FLEX are peer pager protocols that run on the same NFM
+	// audio; any combination can be enabled on one VFO. Each branch owns its
+	// own decoder lifecycle (create / live-param update / teardown).
+	decodeLocalPocsag(pager, params, state, v, out);
+	decodeLocalGsc(pager, params, state, v, out);
+	decodeLocalFlex(pager, params, state, v, out);
+}
+
+/** POCSAG decode branch (a peer of the GSC and FLEX branches). */
+function decodeLocalPocsag(
+	pager: PagerCallbacks,
+	params: VfoParams,
+	state: VfoState,
+	v: number,
+	out: Float32Array<ArrayBuffer>,
+) {
 	if (pager.pocsag && params.pocsag && params.mode === 'nfm') {
 		if (!state.pocsagDecoder) {
 			state.pocsagDecoder = new POCSAGDecoder(
@@ -104,7 +120,7 @@ export function decodeLocalPager(
 			);
 			state.pocsagCharset = params.pocsagCharset;
 		} else if (params.pocsagCharset !== state.pocsagCharset) {
-			// Live charset change — re-point the decoder's codepage.
+			// Live charset change -- re-point the decoder's codepage.
 			if (params.pocsagCharset) state.pocsagDecoder.setCharset(params.pocsagCharset);
 			state.pocsagCharset = params.pocsagCharset;
 		}
@@ -124,10 +140,6 @@ export function decodeLocalPager(
 		state.pocsagDecoder = null;
 		state.pocsagStatusAt = undefined;
 	}
-
-	// GSC runs on the same NFM audio; both can be enabled on one VFO.
-	decodeLocalGsc(pager, params, state, v, out);
-	decodeLocalFlex(pager, params, state, v, out);
 }
 
 /** FLEX decode branch (separate so decodeLocalPager stays simple). */

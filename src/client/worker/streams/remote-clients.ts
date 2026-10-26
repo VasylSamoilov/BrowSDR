@@ -374,22 +374,7 @@ function decodeRemotePager(
 ): void {
 	decodeRemotePocsag(backend, state, index, params, clientId, samples);
 	decodeRemoteGsc(backend, state, index, params, clientId, samples);
-
-	if (backend._remoteHostFlexCb && params.flex && params.mode === 'nfm') {
-		const fdec = ensureRemoteFlexDecoder(backend._remoteHostFlexCb, state, index, params, clientId);
-		fdec.process(samples);
-		if (backend._remoteHostFlexStatusCb) {
-			if (!state.flexStatusAt) state.flexStatusAt = [];
-			const now = Date.now();
-			if (state.flexStatusAt[index] == null || now - state.flexStatusAt[index] >= 500) {
-				state.flexStatusAt[index] = now;
-				backend._remoteHostFlexStatusCb(clientId, index, params.freq, fdec.getStatus());
-			}
-		}
-	} else if (state.flexDecoders && state.flexDecoders[index]) {
-		state.flexDecoders[index] = null;
-		if (state.flexStatusAt) state.flexStatusAt[index] = undefined as unknown as number;
-	}
+	decodeRemoteFlex(backend, state, index, params, clientId, samples);
 }
 
 function decodeRemotePocsag(
@@ -439,6 +424,31 @@ function decodeRemoteGsc(
 	} else if (state.gscDecoders && state.gscDecoders[index]) {
 		state.gscDecoders[index] = null;
 		if (state.gscStatusAt) state.gscStatusAt[index] = undefined as unknown as number;
+	}
+}
+
+function decodeRemoteFlex(
+	backend: Backend,
+	state: RemoteClientState,
+	index: number,
+	params: VfoParams,
+	clientId: string,
+	samples: Float32Array,
+): void {
+	if (backend._remoteHostFlexCb && params.flex && params.mode === 'nfm') {
+		const fdec = ensureRemoteFlexDecoder(backend._remoteHostFlexCb, state, index, params, clientId);
+		fdec.process(samples);
+		if (backend._remoteHostFlexStatusCb) {
+			if (!state.flexStatusAt) state.flexStatusAt = [];
+			const now = Date.now();
+			if (state.flexStatusAt[index] == null || now - state.flexStatusAt[index] >= 500) {
+				state.flexStatusAt[index] = now;
+				backend._remoteHostFlexStatusCb(clientId, index, params.freq, fdec.getStatus());
+			}
+		}
+	} else if (state.flexDecoders && state.flexDecoders[index]) {
+		state.flexDecoders[index] = null;
+		if (state.flexStatusAt) state.flexStatusAt[index] = undefined as unknown as number;
 	}
 }
 
