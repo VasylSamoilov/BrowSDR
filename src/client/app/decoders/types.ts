@@ -9,7 +9,15 @@ export interface PagerState {
 
 export type RdsStations = Record<
 	number,
-	{ ps: string; rt: string; pi: string; pty: number; ptyLabel: string; tp: boolean; ta: boolean; freq: string }
+	{
+		ps: string; rt: string; pi: string; pty: number; ptyLabel: string;
+		tp: boolean; ta: boolean; freq: string;
+		ptyn: string; ct: string; ctUtcOffset: number | null;
+		ecc: number; countryName: string; lic: number; languageName: string;
+		af: number[]; hasTmc: boolean;
+		rtPlusItem1: string; rtPlusItem1Tag: number;
+		rtPlusItem2: string; rtPlusItem2Tag: number;
+	}
 >;
 
 export interface PagerLogEntry {

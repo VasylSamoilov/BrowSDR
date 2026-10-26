@@ -81,4 +81,36 @@ export interface RDSMessage {
 	ptyLabel?: string;
 	tp?: boolean;
 	ta?: boolean;
+	// Group 1A
+	ecc?: number;           // Extended Country Code (0x00-0xFF)
+	countryName?: string;   // Resolved from PI+ECC (region-dependent)
+	lic?: number;           // Language Identification Code
+	languageName?: string;  // Resolved LIC name
+	pin?: number;           // Programme Item Number (scheduled time, raw 16-bit)
+	pinDay?: number;        // PIN decoded day-of-month (1-31)
+	pinHour?: number;       // PIN decoded hour (0-23)
+	pinMinute?: number;     // PIN decoded minute (0-59)
+	hasTmc?: boolean;       // TMC service detected (Group 1A variant 1)
+	// Group 3A (ODA)
+	odaAid?: number;        // Open Data Application ID registered on a group
+	odaGroup?: number;      // Group number carrying this ODA (0-15)
+	odaVersion?: number;    // Group version (0=A, 1=B)
+	// Group 4A (CT)
+	ct?: string;            // Clock time formatted "YYYY-MM-DD HH:MM" local
+	ctUtcOffset?: number;   // UTC offset in half-hours (signed)
+	// Group 5-9, 11-13 ODA data — raw for paging / TMC consumers
+	odaData?: { group: number; version: number; b: number; c: number; d: number };
+	// Group 10A (PTYN)
+	ptyn?: string;          // Programme Type Name (8 chars free text)
+	// Group 14A (EON)
+	eon?: { pi: string; ps?: string; tp: boolean; ta: boolean; af?: number[] };
+	// Group 3A RT+ ODA (AID 0x4BD7) and Group 11A RT+ data
+	rtPlusItem1?: string;   // Now-playing tag 1 text (e.g. artist)
+	rtPlusItem1Tag?: number;
+	rtPlusItem2?: string;   // Now-playing tag 2 text (e.g. title)
+	rtPlusItem2Tag?: number;
+	// Group 0A AF list
+	af?: number[];          // Alternative frequencies in kHz
+	// Paging (ODA AID 0x3DC5 / Group 1A pager variant / Group 7A)
+	paging?: { address: number; functionBits: number; data: string };
 }

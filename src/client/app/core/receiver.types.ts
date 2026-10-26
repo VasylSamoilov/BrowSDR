@@ -209,6 +209,7 @@ export interface ReceiverMethods {
 	_rdsStation(vfoIndex: number): AppInstance['rds']['stations'][number];
 	rdsActive(): AppInstance['rds']['stations'][number];
 	_onRdsMessage(vfoIndex: number, freqMhz: number, msg: RDSMessage): void;
+	setRdsRegion(vfoIndex: number, region: string): void;
 	toggleDisplayLock(): void;
 	handleWheelZoom(e: WheelEvent, rect: DOMRect): void;
 	applyZoomToEngine(): void;

@@ -1,7 +1,10 @@
 import type { RDSMessage } from '@/worker/decoders/types';
 import type { AppInstance } from '@/app/core/receiver.types';
 
-const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false, ta: false, freq: '' };
+const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false, ta: false, freq: '',
+	ptyn: '', ct: '', ctUtcOffset: 0 as number | null, ecc: -1, countryName: '', lic: -1, languageName: '',
+	af: [] as number[], hasTmc: false, rtPlusItem1: '', rtPlusItem1Tag: 0, rtPlusItem2: '', rtPlusItem2Tag: 0,
+};
 
 export const rdsMethods = {
 	toggleRdsPanel(this: AppInstance) {
@@ -43,25 +46,40 @@ export const rdsMethods = {
 		const freq = freqMhz ? this.formatFreq(freqMhz) + ' MHz' : '';
 		const stn = this._rdsStation(vfoIndex);
 
-		if (msg.pi !== undefined) {
-			stn.pi = msg.pi;
-			stn.freq = freq;
-		}
+		if (msg.pi !== undefined) { stn.pi = msg.pi; stn.freq = freq; }
 		if (msg.ps !== undefined) {
-			stn.ps = msg.ps;
-			stn.freq = freq;
+			stn.ps = msg.ps; stn.freq = freq;
 			this.rds.log.push({ time, field: 'PS', value: msg.ps, freq, vfoIndex });
 		}
 		if (msg.rt !== undefined) {
 			stn.rt = msg.rt;
 			this.rds.log.push({ time, field: 'RT', value: msg.rt, freq, vfoIndex });
 		}
-		if (msg.pty !== undefined) {
-			stn.pty = msg.pty;
-			stn.ptyLabel = msg.ptyLabel || '';
+		if (msg.ptyn !== undefined) {
+			stn.ptyn = msg.ptyn;
+			this.rds.log.push({ time, field: 'PTYN', value: msg.ptyn, freq, vfoIndex });
 		}
+		if (msg.ct !== undefined) {
+			stn.ct = msg.ct;
+			stn.ctUtcOffset = msg.ctUtcOffset ?? null;
+			this.rds.log.push({ time, field: 'CT', value: msg.ct, freq, vfoIndex });
+		}
+		if (msg.pty !== undefined) { stn.pty = msg.pty; stn.ptyLabel = msg.ptyLabel || ''; }
 		if (msg.tp !== undefined) stn.tp = msg.tp;
 		if (msg.ta !== undefined) stn.ta = msg.ta;
+		if (msg.ecc !== undefined) { stn.ecc = msg.ecc; stn.countryName = msg.countryName || ''; }
+		if (msg.lic !== undefined) { stn.lic = msg.lic; stn.languageName = msg.languageName || ''; }
+		if (msg.af !== undefined) stn.af = msg.af;
+		if (msg.hasTmc) stn.hasTmc = true;
+		if (msg.rtPlusItem1 !== undefined) {
+			stn.rtPlusItem1 = msg.rtPlusItem1 || '';
+			stn.rtPlusItem1Tag = msg.rtPlusItem1Tag || 0;
+			stn.rtPlusItem2 = msg.rtPlusItem2 || '';
+			stn.rtPlusItem2Tag = msg.rtPlusItem2Tag || 0;
+		}
+		if (msg.eon !== undefined) {
+			this.rds.log.push({ time, field: 'EON', value: `PI:${msg.eon.pi}${msg.eon.ps ? ' PS:' + msg.eon.ps.trim() : ''}`, freq, vfoIndex });
+		}
 
 		// Auto-scroll log
 		Promise.resolve(
@@ -70,6 +88,15 @@ export const rdsMethods = {
 				if (el) el.scrollTop = el.scrollHeight;
 			}),
 		).catch((error: unknown) => console.error(error));
+	},
+	/** Region change: update decoder AND auto-set de-emphasis (NA→75µs, EU→50µs). */
+	setRdsRegion(this: AppInstance, vfoIndex: number, region: string) {
+		const vfo = this.vfos[vfoIndex];
+		if (!vfo) return;
+		vfo.rdsRegion = region;
+		// Auto-set de-emphasis: NA/RBDS uses 75µs, EU/RDS uses 50µs
+		if (region === 'na') vfo.deEmphasis = '75us';
+		else if (region === 'eu') vfo.deEmphasis = '50us';
 	},
 	clearRds(this: AppInstance) {
 		this.rds.log = [];

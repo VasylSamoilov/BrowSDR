@@ -18,17 +18,31 @@
 				<div v-for="stn in rdsStationList()" :key="stn.vfoIndex" class="rds-station-card" :style="{ borderLeftColor: vfoColor(stn.vfoIndex) }">
 					<div class="rds-station">
 						<span class="rds-ps" v-if="stn.ps">{{ stn.ps }}</span>
+						<span class="rds-ptyn" v-if="stn.ptyn" :title="'Programme type name: ' + stn.ptyn">{{ stn.ptyn }}</span>
 						<span class="rds-freq">{{ stn.freq }}</span>
 					</div>
 					<div class="rds-station-meta">
 						<span class="rds-pi" v-if="stn.pi">PI:{{ stn.pi }}</span>
+						<span class="rds-country" v-if="stn.countryName && stn.countryName !== '--'" :title="'ECC 0x' + stn.ecc.toString(16).toUpperCase()">{{ stn.countryName }}</span>
 						<span class="rds-pty" v-if="stn.ptyLabel">{{ stn.ptyLabel }}</span>
-						<span class="rds-flags" v-if="stn.tp || stn.ta">
+						<span class="rds-language" v-if="stn.languageName && stn.languageName !== 'Unknown'" :title="'LIC ' + stn.lic">{{ stn.languageName }}</span>
+						<span class="rds-flags" v-if="stn.tp || stn.ta || stn.hasTmc">
 							<span v-if="stn.tp" class="rds-flag">TP</span>
 							<span v-if="stn.ta" class="rds-flag rds-ta">TA</span>
+							<span v-if="stn.hasTmc" class="rds-flag rds-tmc">TMC</span>
 						</span>
 					</div>
 					<div class="rds-rt" v-if="stn.rt">{{ stn.rt }}</div>
+					<div class="rds-rtplus" v-if="stn.rtPlusItem1 || stn.rtPlusItem2" style="font-size:11px;opacity:0.75;margin-top:2px;">
+						<span v-if="stn.rtPlusItem1">🎵 {{ stn.rtPlusItem1 }}</span>
+						<span v-if="stn.rtPlusItem2"> — {{ stn.rtPlusItem2 }}</span>
+					</div>
+					<div class="rds-ct" v-if="stn.ct" style="font-size:11px;opacity:0.6;" :title="'UTC offset: ' + (stn.ctUtcOffset != null ? (stn.ctUtcOffset >= 0 ? '+' : '') + (stn.ctUtcOffset / 2).toFixed(1) + 'h' : 'unknown')">
+						🕐 {{ stn.ct }}<template v-if="stn.ctUtcOffset != null"> UTC{{ stn.ctUtcOffset >= 0 ? '+' : '' }}{{ (stn.ctUtcOffset / 2).toFixed(1) }}h</template>
+					</div>
+					<div class="rds-af" v-if="stn.af && stn.af.length" style="font-size:10px;opacity:0.55;" title="Alternative frequencies">
+						AF: {{ stn.af.map(f => (f/1000).toFixed(1)).join(' · ') }}
+					</div>
 				</div>
 			</div>
 			<!-- Right: Live log -->
