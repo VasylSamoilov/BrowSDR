@@ -155,7 +155,7 @@ function validVfoParams(value: unknown): boolean {
 		(value.pocsagMode === undefined || (typeof value.pocsagMode === 'string' && ['auto', 'alpha', 'numeric'].includes(value.pocsagMode))) &&
 		(value.flexCharset === undefined ||
 			(isRecord(value.flexCharset) && typedFields(value.flexCharset, ['vendor', 'model', 'codepage'], 'string'))) &&
-		optionalFields(value, ['pocsagSecondGuess'], 'boolean')
+		optionalFields(value, ['pocsagSecondGuess', 'gscSecondGuess'], 'boolean')
 	);
 }
 function validDspStats(value: unknown): boolean {

@@ -29,6 +29,13 @@ export interface GSCMessage {
 	 * so any future dedup/retransmission collapse MUST key on address+polarity,
 	 * never address alone. */
 	inverted?: boolean;
+	/**
+	 * Runner-up interpretation (the other of alpha/numeric), present only when
+	 * the "show second guess" option is on. GSC discriminates alpha vs numeric
+	 * by content score, so the losing reading is a meaningful second guess. The
+	 * UI renders it dimmed beside the primary text.
+	 */
+	alt?: { type: 'alpha' | 'numeric'; text: string };
 	/** For voice pages: 'start' when the voice alert batch is decoded, 'stop'
 	 * when the transmission ends. Undefined for data/tone pages. */
 	voiceEvent?: 'start' | 'stop';

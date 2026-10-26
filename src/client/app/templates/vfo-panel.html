@@ -66,6 +66,22 @@
 			<UiCheckbox v-model="vfo.pocsag" label="Decode POCSAG" @change="receiver.togglePocsag(i)"></UiCheckbox>
 		</UiFormRow>
 
+		<!-- POCSAG live link status: sync / stage / speed / polarity / BER -->
+		<div class="pager-status-panel" v-if="vfo.mode === 'nfm' && vfo.pocsag"
+			style="padding:4px 8px;font-size:11px;font-family:monospace;line-height:1.6;background:rgba(0,0,0,0.3);border-radius:4px;margin:4px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+			<span style="display:flex;align-items:center;gap:6px;">
+				<span :style="{ width:'8px',height:'8px',borderRadius:'50%',display:'inline-block',flexShrink:0,background: receiver.pocsagStatus[i]?.synced ? '#44cc44' : '#666' }"></span>
+				<span style="font-weight:700;color:#fff;">POCSAG {{ receiver.pocsagStatus[i]?.synced ? 'SYNC' : 'HUNT' }}</span>
+			</span>
+			<span v-if="receiver.pocsagStatus[i]?.stage" style="color:#b39ddb;text-transform:uppercase;" title="What is being received">{{ receiver.pocsagStatus[i].stage }}</span>
+			<span v-if="receiver.pocsagStatus[i]?.baud" style="color:#aaa;">{{ receiver.pocsagStatus[i].baud }} Bd</span>
+			<span v-if="receiver.pocsagStatus[i]?.synced" :style="{ color: receiver.pocsagStatus[i]?.inverted ? '#ffcc44' : '#88aacc' }" title="Signal polarity">{{ receiver.pocsagStatus[i]?.inverted ? 'INV' : 'NORM' }}</span>
+			<span v-if="receiver.pocsagStatus[i]?.ber != null"
+				:style="{ color: receiver.pocsagStatus[i].ber < 0.01 ? '#44cc44' : (receiver.pocsagStatus[i].ber < 0.05 ? '#ffcc44' : '#ff6644') }">
+				BER {{ (receiver.pocsagStatus[i].ber * 100).toFixed(1) }}%
+			</span>
+		</div>
+
 		<!-- POCSAG codepage selector (per-VFO). Shown when POCSAG is enabled and has charsets. -->
 		<UiFormRow v-if="vfo.mode === 'nfm' && vfo.pocsag" class="pager-charset-row">
 			<label>Charset</label>
@@ -93,40 +109,20 @@
 			<UiCheckbox v-model="vfo.pocsagSecondGuess" label="Show second guess" @change="receiver.updateBackendVfoParams(i)"></UiCheckbox>
 		</UiFormRow>
 
-		<!-- POCSAG live link status: sync · speed · polarity · BER -->
-		<div class="pager-status-panel" v-if="vfo.mode === 'nfm' && vfo.pocsag"
-			style="padding:4px 8px;font-size:11px;font-family:monospace;line-height:1.6;background:rgba(0,0,0,0.3);border-radius:4px;margin:4px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-			<span style="display:flex;align-items:center;gap:6px;">
-				<span :style="{ width:'8px',height:'8px',borderRadius:'50%',display:'inline-block',flexShrink:0,background: receiver.pocsagStatus[i]?.synced ? '#44cc44' : '#666' }"></span>
-				<span style="font-weight:700;color:#fff;">POCSAG {{ receiver.pocsagStatus[i]?.synced ? 'SYNC' : 'HUNT' }}</span>
-			</span>
-			<span v-if="receiver.pocsagStatus[i]?.stage" style="color:#b39ddb;text-transform:uppercase;" title="What is being received">{{ receiver.pocsagStatus[i].stage }}</span>
-			<span v-if="receiver.pocsagStatus[i]?.baud" style="color:#aaa;">{{ receiver.pocsagStatus[i].baud }} Bd</span>
-			<span v-if="receiver.pocsagStatus[i]?.synced" :style="{ color: receiver.pocsagStatus[i]?.inverted ? '#ffcc44' : '#88aacc' }" title="Signal polarity">{{ receiver.pocsagStatus[i]?.inverted ? 'INV' : 'NORM' }}</span>
-			<span v-if="receiver.pocsagStatus[i]?.ber != null"
-				:style="{ color: receiver.pocsagStatus[i].ber < 0.01 ? '#44cc44' : (receiver.pocsagStatus[i].ber < 0.05 ? '#ffcc44' : '#ff6644') }">
-				BER {{ (receiver.pocsagStatus[i].ber * 100).toFixed(1) }}%
-			</span>
-		</div>
-
 		<!-- GSC (Golay) decode toggle (NFM). Default-only: no charset selector. -->
 		<UiFormRow class="full-checkbox-row" v-if="vfo.mode === 'nfm'">
 			<UiCheckbox v-model="vfo.gsc" label="Decode GSC" @change="receiver.toggleGsc(i)"></UiCheckbox>
 		</UiFormRow>
-		<UiFormRow class="full-checkbox-row" v-if="vfo.mode === 'nfm' && vfo.gsc">
-			<UiCheckbox v-model="vfo.gscAutoListen" label="Auto-listen to voice pages"
-				title="On a GSC voice page, unmute and open squelch to hear the announcement, then restore when it ends"></UiCheckbox>
-		</UiFormRow>
 
-		<!-- GSC live link status: sync + BER -->
+		<!-- GSC live link status: sync / stage / speed / polarity / BER -->
 		<div class="pager-status-panel" v-if="vfo.mode === 'nfm' && vfo.gsc"
 			style="padding:4px 8px;font-size:11px;font-family:monospace;line-height:1.6;background:rgba(0,0,0,0.3);border-radius:4px;margin:4px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
 			<span style="display:flex;align-items:center;gap:6px;">
 				<span :style="{ width:'8px',height:'8px',borderRadius:'50%',display:'inline-block',flexShrink:0,background: receiver.gscStatus[i]?.synced ? '#44cc44' : '#666' }"></span>
 				<span style="font-weight:700;color:#fff;">GSC {{ receiver.gscStatus[i]?.synced ? 'SYNC' : 'HUNT' }}</span>
 			</span>
-			<span v-if="receiver.gscStatus[i]?.baud" style="color:#aaa;">{{ receiver.gscStatus[i].baud }} Bd</span>
 			<span v-if="receiver.gscStatus[i]?.stage" style="color:#b39ddb;text-transform:uppercase;" title="What is being received">{{ receiver.gscStatus[i].stage }}</span>
+			<span v-if="receiver.gscStatus[i]?.baud" style="color:#aaa;">{{ receiver.gscStatus[i].baud }} Bd</span>
 			<span v-if="receiver.gscStatus[i]?.synced" :style="{ color: receiver.gscStatus[i]?.inverted ? '#ffcc44' : '#88aacc' }" title="Signal polarity">{{ receiver.gscStatus[i]?.inverted ? 'INV' : 'NORM' }}</span>
 			<span v-if="receiver.gscStatus[i]?.ber != null"
 				:style="{ color: receiver.gscStatus[i].ber < 0.01 ? '#44cc44' : (receiver.gscStatus[i].ber < 0.05 ? '#ffcc44' : '#ff6644') }">
@@ -134,22 +130,19 @@
 			</span>
 		</div>
 
+		<UiFormRow class="full-checkbox-row" v-if="vfo.mode === 'nfm' && vfo.gsc">
+			<UiCheckbox v-model="vfo.gscAutoListen" label="Auto-listen to voice pages"
+				title="On a GSC voice page, unmute and open squelch to hear the announcement, then restore when it ends"></UiCheckbox>
+		</UiFormRow>
+		<!-- GSC alpha/numeric are auto-discriminated by content score; expose the
+		     runner-up like POCSAG. Off by default. -->
+		<UiFormRow class="full-checkbox-row" v-if="vfo.mode === 'nfm' && vfo.gsc">
+			<UiCheckbox v-model="vfo.gscSecondGuess" label="Show second guess" @change="receiver.updateBackendVfoParams(i)"></UiCheckbox>
+		</UiFormRow>
+
 		<!-- FLEX (Motorola FLEX) decode toggle (NFM). -->
 		<UiFormRow class="full-checkbox-row" v-if="vfo.mode === 'nfm'">
 			<UiCheckbox v-model="vfo.flex" label="Decode FLEX" @change="receiver.toggleFlex(i)"></UiCheckbox>
-		</UiFormRow>
-		<!-- FLEX charset: ASCII default, or Kanji (switches alpha decoding to
-		     16-bit Shift-JIS). Selecting a handler charset changes the decode
-		     logic, it is not a glyph-table remap. -->
-		<UiFormRow v-if="vfo.mode === 'nfm' && vfo.flex" class="pager-charset-row">
-			<label>Charset</label>
-			<select class="decoder-vfo-select"
-				:value="receiver.flexCharsetValue(i)"
-				@change="receiver.setFlexCharset(i, $event.target.value)">
-				<optgroup v-for="g in receiver.pagerCharsetGroups('flex')" :key="g.vendor" :label="g.vendor">
-					<option v-for="o in g.items" :key="o.value" :value="o.value">{{ o.label }}</option>
-				</optgroup>
-			</select>
 		</UiFormRow>
 
 		<!-- FLEX live link status: lock, pipeline stage, polarity, air mode,
@@ -179,6 +172,21 @@
 			<span v-if="receiver.flexStatus[i]?.reasmBuffers" style="color:#ffb74d;" title="In-flight fragment reassembly buffers (this polarity)">REASM&times;{{ receiver.flexStatus[i].reasmBuffers }}</span>
 			<span v-if="receiver.flexStatus[i]?.lastSyncEvent" :style="{ color: receiver.flexStatus[i].lastSyncEvent.ers ? '#ff5252' : '#ffca28', fontWeight:700 }" :title="(receiver.flexStatus[i].lastSyncEvent.ers ? 'Emergency re-synchronization (ERS) detected -- base station lost sync timing; receiver re-synchronizes' : 'Reserved sync code detected (100% error-free)') + ': code 0x' + receiver.flexStatus[i].lastSyncEvent.code.toString(16).padStart(4, '0')">{{ receiver.flexStatus[i].lastSyncEvent.ers ? 'ERS' : 'SYNC' }}: {{ receiver.flexStatus[i].lastSyncEvent.label }}</span>
 		</div>
+		<!-- FLEX charset: ASCII default, or Kanji (switches alpha decoding to
+		     16-bit Shift-JIS). Selecting a handler charset changes the decode
+		     logic, it is not a glyph-table remap. -->
+		<UiFormRow v-if="vfo.mode === 'nfm' && vfo.flex" class="pager-charset-row">
+			<label>Charset</label>
+			<select class="decoder-vfo-select"
+				:value="receiver.flexCharsetValue(i)"
+				@change="receiver.setFlexCharset(i, $event.target.value)">
+				<optgroup v-for="g in receiver.pagerCharsetGroups('flex')" :key="g.vendor" :label="g.vendor">
+					<option v-for="o in g.items" :key="o.value" :value="o.value">{{ o.label }}</option>
+				</optgroup>
+			</select>
+		</UiFormRow>
+
+
 
 		<!-- FLEX group-messaging slots (A1): 16 temporary-address slots as a
 		     2x8 colored mini-grid. grey=idle, blue=registered, amber=delivering.

@@ -343,6 +343,7 @@ function ensureRemoteGscDecoder(
 		dec = new GSCDecoder(AUDIO_RATE, (gmsg) => cb(clientId, index, params.freq, gmsg));
 		state.gscDecoders[index] = dec;
 	}
+	dec.setShowSecondGuess(params.gscSecondGuess ?? false);
 	return dec;
 }
 

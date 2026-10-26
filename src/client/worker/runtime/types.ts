@@ -54,6 +54,8 @@ export interface VfoParams {
 	pocsagMode?: PocsagMode;
 	pocsagSecondGuess?: boolean;
 	gsc?: boolean;
+	/** Show the runner-up GSC alpha/numeric interpretation; default false. */
+	gscSecondGuess?: boolean;
 	/** Decode FLEX on this NFM VFO. */
 	flex?: boolean;
 	/** Selected FLEX charset (ASCII default, or Kanji which switches decoding). */

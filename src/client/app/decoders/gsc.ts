@@ -43,6 +43,7 @@ export const gscMethods = {
 			voiceEvent: msg.voiceEvent,
 			voiceEndReason: msg.voiceEndReason,
 			inverted: msg.inverted,
+			alt: msg.alt,
 		});
 		if (msg.voiceEvent) this._gscAutoListen(vfoIndex, msg.voiceEvent);
 		pagerAutoScroll(this);

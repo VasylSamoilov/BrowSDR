@@ -96,6 +96,9 @@ export class GSCDecoder {
 	private lastBit = -1;
 	private noTransition = 0;
 	private synced = false;
+	// When true, emit the runner-up alpha/numeric reading as msg.alt. Off by
+	// default (POCSAG-style second guess, opt-in via setShowSecondGuess).
+	private showSecondGuess = false;
 	// In-DATA new-preamble rescan (for continuous/back-to-back batches).
 	private dataPreIdx = -1;
 	private dataPreInv = false;
@@ -177,6 +180,11 @@ export class GSCDecoder {
 	getStatus(): GSCStatus {
 		const stage = this.synced ? (this.state === 'voice' || this.voiceActive ? 'voice' : 'data') : null;
 		return { synced: this.synced, baud: this.synced ? BAUD : null, inverted: this.inverted, ber: this.ber.ber, codewords: this.ber.count, stage };
+	}
+
+	/** Enable/disable emitting the runner-up alpha/numeric reading as msg.alt. */
+	setShowSecondGuess(on: boolean): void {
+		this.showSecondGuess = on;
 	}
 
 	/** Resolve a 46-bit dup window into a 23-bit Golay codeword (LSB-first,
@@ -355,6 +363,7 @@ export class GSCDecoder {
 		const msg = decodeBatch(buf, this.preambleIndex, force, this.ber);
 		if (!msg) return 'none';
 		msg.inverted = this.inverted;
+		if (!this.showSecondGuess) msg.alt = undefined; // runner-up only when opted in
 		if (msg.voiceEvent === 'start') {
 			this.voiceActive = true;
 			this.voiceAddress = msg.address;
@@ -495,6 +504,7 @@ export function decodeBatch(bits: number[], preambleIdx: number, force: boolean,
 		errorCount,
 		uncorrectableCount: content.uncorrectable,
 		preambleIndex: preambleIdx,
+		...(content.alt ? { alt: content.alt } : {}),
 		...(content.type === 'voice' ? { voiceEvent: 'start' as const } : {}),
 	};
 }
@@ -587,7 +597,7 @@ function decodeContent(
 	pos: number,
 	force: boolean,
 	ber?: BerWindow,
-): 'need-more' | { type: GSCMessage['type']; text: string; charStatus: number[]; errors: number; uncorrectable: number } {
+): 'need-more' | { type: GSCMessage['type']; text: string; charStatus: number[]; errors: number; uncorrectable: number; alt?: { type: 'alpha' | 'numeric'; text: string } } {
 	const remaining = bits.length - pos;
 
 	// Voice: activation code after a 28-bit comma.
@@ -709,7 +719,7 @@ function decodeDataBlocks(
 	startPos: number,
 	force: boolean,
 	ber?: BerWindow,
-): { type: 'alpha' | 'numeric'; text: string; charStatus: number[]; errors: number; uncorrectable: number } | 'need-more' | null {
+): { type: 'alpha' | 'numeric'; text: string; charStatus: number[]; errors: number; uncorrectable: number; alt: { type: 'alpha' | 'numeric'; text: string } } | 'need-more' | null {
 	const collected = collectDataBlocks(bits, startPos, force, ber);
 	if (collected === 'need-more') return 'need-more';
 	if (!collected) return null;
@@ -776,10 +786,12 @@ function decodeDataBlocks(
 	const numScore = scoreNumeric(numNibbles, numFill);
 	const type: 'alpha' | 'numeric' = numScore > alphaScore ? 'numeric' : 'alpha';
 	const chosen = type === 'alpha' ? alpha : num;
+	const runnerUp = type === 'alpha' ? num : alpha;
 
 	// Per-character status = the FEC status of the block that produced it.
 	const charStatus = chosen.blk.map((b) => blockStatus[b] ?? GSC_CHAR_OK);
-	return { type, text: chosen.text, charStatus, errors, uncorrectable };
+	const alt: { type: 'alpha' | 'numeric'; text: string } = { type: type === 'alpha' ? 'numeric' : 'alpha', text: runnerUp.text };
+	return { type, text: chosen.text, charStatus, errors, uncorrectable, alt };
 }
 // re-exported so a test harness can drive the FEC directly.
 export { calcBch, readDupGolay, deinterleaveBch, initFec, decodeGolay, decodeBch } from './golay-fec';

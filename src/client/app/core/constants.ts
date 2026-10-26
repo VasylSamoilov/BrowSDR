@@ -27,6 +27,7 @@ export const makeDefaultVfo = (freq = 100.0) => ({
 	pocsagSecondGuess: false,
 	gsc: false,
 	gscAutoListen: false,
+	gscSecondGuess: false,
 	flex: false,
 	flexCharset: { vendor: 'generic', model: 'generic', codepage: 'ascii' },
 	adsb: false,

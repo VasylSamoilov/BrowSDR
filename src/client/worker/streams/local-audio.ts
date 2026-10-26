@@ -193,6 +193,7 @@ function decodeLocalGsc(
 				pager.gsc?.(v, params.freq, gmsg);
 			});
 		}
+		state.gscDecoder.setShowSecondGuess(params.gscSecondGuess ?? false);
 		state.gscDecoder.process(out);
 		if (pager.gscStatus) {
 			const now = Date.now();
