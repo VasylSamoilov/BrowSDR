@@ -1,9 +1,9 @@
 	<!-- RDS Panel -->
-	<div class="pocsag-panel" v-if="rds.panelOpen">
-		<UiToolHeader variant="pocsag" closable close-label="Close RDS panel" @close="toggleRdsPanel">
+	<div class="msgcenter-panel" v-if="rds.panelOpen">
+		<UiToolHeader variant="msgcenter" closable close-label="Close RDS panel" @close="toggleRdsPanel">
 				<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle;margin-right:4px"><path fill="currentColor" d="M20 6H4c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 10H4V8h16v8zM6 10h2v4H6zm3 0h5v4H9z"/></svg>
 			FM RDS Decoder
-			<span class="pocsag-count" v-if="rdsStationList().length">{{ rdsStationList().length }} station{{ rdsStationList().length> 1 ? 's' : '' }}</span>
+			<span class="msgcenter-count" v-if="rdsStationList().length">{{ rdsStationList().length }} station{{ rdsStationList().length> 1 ? 's' : '' }}</span>
 			<template #actions>
 				<UiButton variant="transcript" @click="clearRds" title="Clear RDS data">Clear</UiButton>
 				<UiButton variant="transcript" @click="exportRds" title="Export as text" :disabled="rds.log.length === 0">Export</UiButton>
@@ -12,7 +12,7 @@
 		<div class="rds-split">
 			<!-- Left: Station cards -->
 			<div class="rds-stations-col">
-				<UiEmptyState v-if="rdsStationList().length === 0" variant="pocsag">
+				<UiEmptyState v-if="rdsStationList().length === 0" variant="msgcenter">
 					Enable "Decode RDS" on a WFM VFO and tune to an FM station.
 				</UiEmptyState>
 				<div v-for="stn in rdsStationList()" :key="stn.vfoIndex" class="rds-station-card" :style="{ borderLeftColor: vfoColor(stn.vfoIndex) }">
@@ -33,15 +33,15 @@
 			</div>
 			<!-- Right: Live log -->
 			<div class="rds-log-col" ref="rdsBody">
-				<UiEmptyState v-if="rds.log.length === 0" variant="pocsag">
+				<UiEmptyState v-if="rds.log.length === 0" variant="msgcenter">
 					Waiting for RDS data...
 				</UiEmptyState>
-				<div v-for="(entry, i) in rds.log" :key="i" class="pocsag-entry"
+				<div v-for="(entry, i) in rds.log" :key="i" class="msgcenter-entry"
 					:style="entry.vfoIndex != null ? { borderLeftColor: vfoColor(entry.vfoIndex) } : {}">
-					<span class="pocsag-vfo-dot" v-if="entry.vfoIndex != null" :style="{ background: vfoColor(entry.vfoIndex) }" :title="'VFO ' + (entry.vfoIndex + 1)"></span>
-					<span class="pocsag-time">{{ entry.time }}</span>
-					<span class="pocsag-freq" :style="entry.vfoIndex != null ? { color: vfoColor(entry.vfoIndex) } : {}">{{ entry.freq }}</span>
-					<span class="pocsag-type">{{ entry.field }}</span>
+					<span class="msgcenter-vfo-dot" v-if="entry.vfoIndex != null" :style="{ background: vfoColor(entry.vfoIndex) }" :title="'VFO ' + (entry.vfoIndex + 1)"></span>
+					<span class="msgcenter-time">{{ entry.time }}</span>
+					<span class="msgcenter-freq" :style="entry.vfoIndex != null ? { color: vfoColor(entry.vfoIndex) } : {}">{{ entry.freq }}</span>
+					<span class="msgcenter-type">{{ entry.field }}</span>
 					<span class="pocsag-text">{{ entry.value }}</span>
 				</div>
 			</div>

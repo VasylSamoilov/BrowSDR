@@ -1,9 +1,9 @@
 	<!-- Pager Decoder Panel (POCSAG now; GSC / FLEX later) -->
-	<div class="pocsag-panel" v-if="pager.panelOpen">
-		<UiToolHeader variant="pocsag" closable close-label="Close pager panel" @close="togglePagerPanel">
+	<div class="msgcenter-panel" v-if="pager.panelOpen">
+		<UiToolHeader variant="msgcenter" closable close-label="Close pager panel" @close="togglePagerPanel">
 				<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle;margin-right:4px"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-3 12H7v-2h10v2zm0-3H7V9h10v2zm0-3H7V6h10v2z"/></svg>
 			Pager Decoder
-			<span class="pocsag-count" v-if="pager.log.length">{{ pager.log.length }} msg{{ pager.log.length !== 1 ? 's' : '' }}</span>
+			<span class="msgcenter-count" v-if="pager.log.length">{{ pager.log.length }} msg{{ pager.log.length !== 1 ? 's' : '' }}</span>
 			<template #actions>
 				<select class="decoder-vfo-select" :value="pager.filter" @change="setPagerFilter($event.target.value)" title="Filter by protocol" style="margin-right:6px;">
 					<option value="all">All</option>
@@ -13,16 +13,16 @@
 				<UiButton variant="transcript" @click="exportPager" title="Export as text" :disabled="pager.log.length === 0">Export</UiButton>
 			</template>
 		</UiToolHeader>
-		<div class="pocsag-body" ref="pagerBody">
-			<UiEmptyState v-if="pagerRows().length === 0" variant="pocsag">
+		<div class="msgcenter-body" ref="pagerBody">
+			<UiEmptyState v-if="pagerRows().length === 0" variant="msgcenter">
 				No messages yet. Enable a pager protocol (POCSAG, GSC or FLEX) on an NFM VFO and tune to a paging frequency.
 			</UiEmptyState>
-			<div v-for="(entry, i) in pagerRows()" :key="i" class="pocsag-entry"
+			<div v-for="(entry, i) in pagerRows()" :key="i" class="msgcenter-entry"
 				:style="[entry.vfoIndex != null ? { borderLeftColor: vfoColor(entry.vfoIndex) } : {}, (entry.protocol === 'flex' && entry.reasmKey && !entry.complete) ? { borderLeftColor: '#ffb74d', opacity: 0.65 } : {}]">
-				<span class="pocsag-vfo-dot" v-if="entry.vfoIndex != null" :style="{ background: vfoColor(entry.vfoIndex) }" :title="'VFO ' + (entry.vfoIndex + 1)"></span>
-				<span class="pocsag-time">{{ entry.time }}</span>
+				<span class="msgcenter-vfo-dot" v-if="entry.vfoIndex != null" :style="{ background: vfoColor(entry.vfoIndex) }" :title="'VFO ' + (entry.vfoIndex + 1)"></span>
+				<span class="msgcenter-time">{{ entry.time }}</span>
 				<span class="pocsag-proto" :title="'Protocol: ' + entry.protocol" style="flex-shrink:0;font-size:9px;font-weight:700;letter-spacing:0.5px;padding:1px 4px;border-radius:3px;background:rgba(255,255,255,0.1);">{{ entry.protocol.toUpperCase() }}</span>
-				<span class="pocsag-freq" :style="entry.vfoIndex != null ? { color: vfoColor(entry.vfoIndex) } : {}">{{ entry.freq }}</span>
+				<span class="msgcenter-freq" :style="entry.vfoIndex != null ? { color: vfoColor(entry.vfoIndex) } : {}">{{ entry.freq }}</span>
 				<span class="pocsag-capcode" title="Capcode (pager address)">CAP:{{ entry.capcode }}</span>
 				<span v-if="entry.protocol === 'flex' && entry.capClass && entry.capClass !== 'short' && entry.capClass !== 'long'" :title="'Capcode class: ' + entry.capClass" style="color:#ce93d8;flex-shrink:0;font-size:9px;font-weight:700;text-transform:uppercase;">{{ flexCapClassLabel(entry.capClass) }}</span>
 				<span v-if="entry.protocol === 'flex' && entry.groupMembers && entry.groupMembers.length" :title="'Group members: ' + flexMembers(entry.groupMembers)" style="color:#80cbc4;flex-shrink:0;font-size:9px;font-weight:700;">&#128101;{{ entry.groupMembers.length }}</span>
@@ -48,7 +48,7 @@
 				<span v-else-if="entry.protocol === 'flex' && entry.sigOk === false" title="Signature FAILED" style="color:#ff5252;flex-shrink:0;font-size:9px;font-weight:700;">S&#10007;</span>
 				<span v-if="entry.protocol === 'flex' && entry.flexBaud" class="pocsag-flex-mode" :title="'Air mode: ' + entry.flexBaud + 'bps / ' + entry.flexLevels + '-FSK'">{{ entry.flexBaud }}/{{ entry.flexLevels }}FSK</span>
 				<span v-if="entry.protocol === 'flex' && entry.flexTime" class="pocsag-flex-time" title="Calculated FLEX network time (over-the-air clock)">&#128340; {{ entry.flexTime }}</span>
-				<span class="pocsag-type" :class="'pocsag-type-' + (entry.voiceEvent ? 'voice' : entry.type)">{{ entry.type.toUpperCase() }}</span>
+				<span class="msgcenter-type" :class="'pocsag-type-' + (entry.voiceEvent ? 'voice' : entry.type)">{{ entry.type.toUpperCase() }}</span>
 				<span class="pocsag-baud" v-if="entry.baud">{{ entry.baud }}Bd</span>
 				<span class="pocsag-check" v-if="entry.uncorrectableCount" title="Uncorrectable codewords (FEC decode failed)" style="flex-shrink:0;font-size:9px;font-weight:700;color:#ff5252;">✗{{ entry.uncorrectableCount }}</span>
 				<span class="pocsag-check" v-else-if="entry.errorCount" title="FEC-corrected codewords (checksum OK)" style="flex-shrink:0;font-size:9px;font-weight:700;color:#ffca28;">✓~{{ entry.errorCount }}</span>

@@ -6,7 +6,7 @@ const meta = {
 	title: 'UI/Tool Header',
 	component: UiToolHeader,
 	tags: ['autodocs'],
-	args: { variant: 'pocsag' },
+	args: { variant: 'msgcenter' },
 	render: (args) => ({
 		components: { UiToolHeader, UiButton, UiBadge, UiEmptyState },
 		setup: () => ({ args }),
