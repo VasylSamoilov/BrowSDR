@@ -1,7 +1,7 @@
 /*
  * Pager charset registry -- resolves a protocol-scoped charset key to a glyph
- * table. POCSAG is populated (26 identities over 19 unique tables); FLEX is a
- * ready empty branch for a later pass.
+ * table. POCSAG and FLEX are populated (POCSAG from its vendor tables, FLEX from
+ * the Motorola Linguist sets); GSC is default-only (single Table VII alphabet).
  */
 
 import type { CharsetEntry, CharsetKey, CharsetHandler, CharsetRegistry, CharsetTables, Codepage, PagerProtocol } from './types';
@@ -52,8 +52,8 @@ export function defaultCharset(protocol: PagerProtocol): CharsetKey {
 
 /**
  * Resolve a protocol-scoped charset key to its glyph table, falling back to the
- * protocol's default table. Protocol-generic entry point shared by every pager
- * decoder (POCSAG now; GSC/FLEX later).
+ * protocol's default table. Protocol-generic entry point shared by the pager
+ * decoders (POCSAG and FLEX; GSC is default-only).
  */
 export function resolveCodepage(protocol: PagerProtocol, key: CharsetKey): Codepage {
 	const list = CHARSETS[protocol] ?? [];

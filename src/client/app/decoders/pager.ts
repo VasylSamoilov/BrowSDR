@@ -93,7 +93,7 @@ export const pagerMethods = {
 	},
 	/** All selectable charsets for a protocol, grouped by vendor, for the UI
 	 * dropdown. Data-driven off the registry so each protocol shows only its own
-	 * codepages (POCSAG now; FLEX when populated). */
+	 * codepages (POCSAG and FLEX; GSC is default-only, so it lists none). */
 	pagerCharsetGroups(
 		this: AppInstance,
 		protocol: PagerProtocol,

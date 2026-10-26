@@ -311,7 +311,7 @@ export function voteTz(
  * wraps. On expiry the component is cleared from `net` and its vote state reset
  * so a reappearance must re-confirm from scratch. Call once per decoded frame.
  */
-export function expireFlexTime(v: FlexTimeVote, net: FlexNetInfo, frameMono: number): void {
+function expireFlexTime(v: FlexTimeVote, net: FlexNetInfo, frameMono: number): void {
 	if (v.confirmedDate >= 0 && frameMono - v.confirmedDate >= EXPIRE_FRAMES) {
 		net.date = null;
 		v.confirmedDate = -1;
