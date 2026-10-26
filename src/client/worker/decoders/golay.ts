@@ -336,6 +336,10 @@ export class GSCDecoder {
 				this.lastBit = -1;
 				this.noTransition = 0;
 				this.state = 'collect';
+				// Freeze DC estimate now that we are locked — mirrors the POCSAG
+				// syncPhase() call at FSC. The alternating preamble gave unbiased
+				// DC updates; from here same-symbol IDLE runs must not drift it.
+				this.slicer.syncPhase();
 			}
 			return;
 		}
@@ -355,6 +359,10 @@ export class GSCDecoder {
 		this.confirmIndex = -1;
 		this.dataPreCount = 0;
 		this.dataPreIdx = -1;
+		// Unfreeze DC tracker so it can re-acquire during the next preamble.
+		this.slicer.pllLocked = false;
+		// Reset BER window so hunt state reports null (no stale data from last lock).
+		this.ber.reset();
 	}
 	/** Decode a buffer and emit the message. Returns 'voice' if a voice page
 	 * started (caller must enter voice state, NOT reset), 'decoded' for any

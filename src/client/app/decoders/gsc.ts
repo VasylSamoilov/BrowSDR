@@ -24,7 +24,10 @@ export const gscMethods = {
 	},
 	_onGscStatus(this: AppInstance, vfoIndex: number, _freqMhz: number, status: GSCStatus) {
 		if (!this.gscStatus) this.gscStatus = [];
-		this.gscStatus[vfoIndex] = status;
+		// Carry last-known BER forward so the UI can dim it during hunt.
+		const prev = this.gscStatus[vfoIndex];
+		const lastBer = status.ber != null ? status.ber : (prev as (GSCStatus & { lastBer?: number }) | null)?.lastBer ?? null;
+		this.gscStatus[vfoIndex] = Object.assign(status, { lastBer });
 	},
 	_onGscMessage(this: AppInstance, vfoIndex: number, freqMhz: number, msg: GSCMessage) {
 		const time = new Date().toLocaleTimeString();
