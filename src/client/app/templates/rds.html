@@ -55,6 +55,13 @@
 						📅 PIN: day {{ stn.pinDay }} {{ String(stn.pinHour).padStart(2,'0') }}:{{ String(stn.pinMinute).padStart(2,'0') }}
 					</div>
 					</div>
+					<div class="rds-di" v-if="stn.ms !== null || stn.di >= 0" style="font-size:10px;opacity:0.55;margin-top:1px;">
+						<span v-if="stn.ms !== null">{{ stn.ms ? '🎵 Music' : '🎤 Speech' }}</span>
+						<span v-if="stn.diStereo" style="margin-left:4px;">Stereo</span>
+						<span v-if="stn.diArtHead" style="margin-left:4px;">AH</span>
+						<span v-if="stn.diCompressed" style="margin-left:4px;">Compressed</span>
+						<span v-if="stn.diDynPty" style="margin-left:4px;" title="Dynamic PTY switching">DynPTY</span>
+					</div>
 					<div class="rds-rt" v-if="stn.rt"><span
 						v-for="(ch, ci) in stn.rt.split('')" :key="ci"
 						:style="{ color: (stn.rtCharStatus[ci] === 1) ? '#ffcc44' : (stn.rtCharStatus[ci] === 2) ? '#ff5252' : undefined }"

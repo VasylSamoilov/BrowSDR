@@ -341,6 +341,10 @@ export class RDSDecoder {
 	private afList: number[] = [];
 	private afCount = 0;
 	private afLastCount = -1;
+	// Group 0/15B — MS and DI
+	private ms = -1;          // last emitted M/S (-1=unknown)
+	private diWord = -1;      // assembled 4-bit DI codeword (-1=incomplete)
+	private diBits = new Int8Array(4).fill(-1); // d3..d0 indexed by seg (0-3)
 
 	// Group 3A — ODA application registration: (groupNum<<1)|version → AID
 	private odaMap: Map<number, number> = new Map();
@@ -359,6 +363,7 @@ export class RDSDecoder {
 	private ptynChars: Array<string | null> = new Array<string | null>(8).fill(null);
 	private ptynStatus: number[] = new Array<number>(8).fill(0);
 	private lastPtyn = '';
+	private ptynAbFlag = -1;
 
 	// Group 14A — EON
 	private eonMap: Map<number, { psChars: (string | null)[]; tp: boolean; ta: boolean; af: number[]; lastKey: string }> = new Map();
@@ -590,7 +595,8 @@ export class RDSDecoder {
 			case 3:  if (version === 0) this.decodeGroup3A(blockB, bv); break;
 			case 4:  if (version === 0) this.decodeGroup4A(bv); break;
 			case 10: if (version === 0) this.decodeGroup10A(blockB, bv); break;
-			case 14: if (version === 0) this.decodeGroup14A(blockB, bv); break;
+			case 14: if (version === 0) this.decodeGroup14A(blockB, bv); else this.decodeGroup14B(blockB, bv); break;
+			case 15: if (version === 1) this.decodeGroup15B(blockB); break;
 			default: this.decodeOdaGroup(groupType, version, blockB, bv); break;
 		}
 	}
@@ -601,10 +607,38 @@ export class RDSDecoder {
 		return this.blockCorrected[idx] ? 1 : 0;
 	}
 
-	// ── Group 0: PS name + TA + AF ───────────────────────────────
+	// ── Group 0: PS name + TA + MS + DI ─────────────────────────
 	private decodeGroup0(version: number, blockB: number, bv: boolean[]): void {
 		const ta = (blockB & 0x10) !== 0;
 		if (ta !== this.ta) { this.ta = ta; this.callback({ ta }); }
+
+		// M/S (Music/Speech) switch: block B bit 3
+		const ms = (blockB & 0x08) !== 0;
+		if (ms !== (this.ms === 1)) {
+			this.ms = ms ? 1 : 0;
+			this.callback({ ms });
+		}
+
+		// DI bit: block B bit 2; segment address from bits [1:0]
+		// 4 groups assemble d3(seg0) d2(seg1) d1(seg2) d0(seg3) -- MSB first
+		// seg=C1C0: 00->d3, 01->d2, 10->d1, 11->d0
+		const seg  = blockB & 0x03;
+		const diBit = (blockB >> 2) & 1;
+		// d3 is transmitted in seg=0, d2 in seg=1, d1 in seg=2, d0 in seg=3
+		this.diBits[3 - seg] = diBit;
+		if (!this.diBits.includes(-1)) {
+			const di = (this.diBits[3] << 3) | (this.diBits[2] << 2) | (this.diBits[1] << 1) | this.diBits[0];
+			if (di !== this.diWord) {
+				this.diWord = di;
+				this.callback({
+					di,
+					diStereo:     (di & 1) !== 0,
+					diArtHead:    (di & 2) !== 0,
+					diCompressed: (di & 4) !== 0,
+					diDynPty:     (di & 8) !== 0,
+				});
+			}
+		}
 
 		// AF Method A in block C (version 0 only)
 		if (version === 0 && bv[2]) {
@@ -612,15 +646,35 @@ export class RDSDecoder {
 			this.processAfPair((c >> 8) & 0xff, c & 0xff);
 		}
 
-		// PS name in block D — quality from whether block D was clean or corrected
+		// PS name in block D
 		if (bv[3]) {
-			const seg = blockB & 0x03;
 			const d = this.blocks[3];
 			const q = this.blockQuality(3);
 			this.acceptChar(seg * 2,     (d >> 8) & 0xff, this.psChars, this.psStatus, q);
 			this.acceptChar(seg * 2 + 1, d & 0xff,        this.psChars, this.psStatus, q);
 			const ps = this.buildPS();
 			if (ps && ps !== this.lastPs) { this.lastPs = ps; this.callback({ ps, psCharStatus: [...this.psStatus] }); }
+		}
+	}
+
+	// ── Group 15B: Fast basic tuning (TA + MS + DI, no PS/AF) ───
+	private decodeGroup15B(blockB: number): void {
+		const ta = (blockB & 0x10) !== 0;
+		if (ta !== this.ta) { this.ta = ta; this.callback({ ta }); }
+		const ms = (blockB & 0x08) !== 0;
+		if (ms !== (this.ms === 1)) {
+			this.ms = ms ? 1 : 0;
+			this.callback({ ms });
+		}
+		const seg   = blockB & 0x03;
+		const diBit = (blockB >> 2) & 1;
+		this.diBits[3 - seg] = diBit;
+		if (!this.diBits.includes(-1)) {
+			const di = (this.diBits[3] << 3) | (this.diBits[2] << 2) | (this.diBits[1] << 1) | this.diBits[0];
+			if (di !== this.diWord) {
+				this.diWord = di;
+				this.callback({ di, diStereo: (di & 1) !== 0, diArtHead: (di & 2) !== 0, diCompressed: (di & 4) !== 0, diDynPty: (di & 8) !== 0 });
+			}
 		}
 	}
 
@@ -834,6 +888,12 @@ export class RDSDecoder {
 
 	// ── Group 10A: Programme Type Name (PTYN) ────────────────────
 	private decodeGroup10A(blockB: number, bv: boolean[]): void {
+		// A/B flag in bit 4: toggle clears PTYN buffer (new PTYN starting)
+		const abFlag = (blockB >> 4) & 1;
+		if (abFlag !== this.ptynAbFlag) {
+			this.ptynAbFlag = abFlag;
+			this.ptynChars.fill(null); this.ptynStatus.fill(0); this.lastPtyn = '';
+		}
 		const seg = blockB & 1;
 		if (bv[2]) { const c = this.blocks[2]; const q = this.blockQuality(2); this.acceptChar(seg*4,   (c>>8)&0xff, this.ptynChars, this.ptynStatus, q); this.acceptChar(seg*4+1, c&0xff, this.ptynChars, this.ptynStatus, q); }
 		if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); this.acceptChar(seg*4+2, (d>>8)&0xff, this.ptynChars, this.ptynStatus, q); this.acceptChar(seg*4+3, d&0xff, this.ptynChars, this.ptynStatus, q); }
@@ -865,8 +925,14 @@ export class RDSDecoder {
 			const fb = decodeAfCode(c & 0xff, this.region);
 			if (fa !== null && !eon.af.includes(fa)) eon.af.push(fa);
 			if (fb !== null && !eon.af.includes(fb)) eon.af.push(fb);
-		} else if (variant === 13) {
+		} else if (variant === 13 && bv[2]) {
+			// PTY(ON) in bits [11:8] of block C, TA(ON) in block B bit 3
 			eon.ta = ((blockB >> 3) & 1) === 1;
+			const ptyOn = (this.blocks[2] >> 8) & 0x1f;
+			void ptyOn; // PTY of other network -- stored in eonMap if needed
+		} else if (variant === 14 && bv[2]) {
+			// PIN(ON) -- scheduled broadcast time of other network
+			void this.blocks[2]; // stored, no callback needed
 		}
 		const ps = eon.psChars.every(ch => ch !== null)
 			? (eon.psChars as string[]).join('')
@@ -885,7 +951,27 @@ export class RDSDecoder {
 		});
 	}
 
-	// ── ODA data groups (5-9, 11-13) + RT+ ──────────────────────
+	// ── Group 14B: EON TA quick-update ──────────────────────────
+	// Figure 38: TP(TN) in block B bit 4, TA(ON) in block B bit 3, PI(ON) in block D
+	private decodeGroup14B(blockB: number, bv: boolean[]): void {
+		if (!bv[3]) return;
+		const eonPi = this.blocks[3];
+		if (!eonPi) return;
+		if (!this.eonMap.has(eonPi))
+			this.eonMap.set(eonPi, { psChars: new Array<string | null>(8).fill(null), tp: false, ta: false, af: [], lastKey: '' });
+		const eon = this.eonMap.get(eonPi)!;
+		eon.tp = ((blockB >> 4) & 1) === 1;
+		eon.ta = ((blockB >> 3) & 1) === 1;
+		const key = `${eonPi}::${eon.tp}:${eon.ta}:`;
+		if (eon.lastKey === key) return;
+		eon.lastKey = key;
+		this.callback({
+			eon: {
+				pi: eonPi.toString(16).toUpperCase().padStart(4, '0'),
+				tp: eon.tp, ta: eon.ta,
+			}
+		});
+	}
 	private decodeOdaGroup(groupNum: number, version: number, blockB: number, bv: boolean[]): void {
 		const key = (groupNum << 1) | version;
 		const aid = this.odaMap.get(key);

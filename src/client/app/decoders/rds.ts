@@ -11,6 +11,8 @@ const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false,
 	pinDay: 0, pinHour: 0, pinMinute: 0,
 	// PI breakdown
 	piCc: 0, piCoverage: 0, piCoverageName: '', piRef: 0, piCallsign: '' as string | null,
+	// Group 0/15B MS + DI
+	ms: null as boolean | null, di: -1, diStereo: false, diArtHead: false, diCompressed: false, diDynPty: false,
 };
 
 export const rdsMethods = {
@@ -102,6 +104,14 @@ export const rdsMethods = {
 		}
 		if (msg.broadcasterData !== undefined) {
 			stn.broadcasterData = msg.broadcasterData;
+		}
+		if (msg.ms !== undefined) stn.ms = msg.ms;
+		if (msg.di !== undefined) {
+			stn.di = msg.di;
+			stn.diStereo     = msg.diStereo     ?? false;
+			stn.diArtHead    = msg.diArtHead    ?? false;
+			stn.diCompressed = msg.diCompressed ?? false;
+			stn.diDynPty     = msg.diDynPty     ?? false;
 		}
 		if (msg.pin !== undefined && msg.pinDay !== undefined) {
 			stn.pinDay = msg.pinDay;

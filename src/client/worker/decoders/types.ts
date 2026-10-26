@@ -86,6 +86,13 @@ export interface RDSMessage {
 	piCoverageName?: string;  // Coverage area name (Local/National/Regional/etc.)
 	piRef?: number;           // PI bits [7:0]: programme reference (0x00=not assigned)
 	piCallsign?: string;      // RBDS only: decoded K/W callsign (null for RDS)
+	// Group 0/15B -- MS and DI
+	ms?: boolean;             // Music(true) / Speech(false) switch
+	di?: number;              // Decoder Identification 4-bit codeword (assembled from 4 groups)
+	diStereo?: boolean;       // d0: true=stereo
+	diArtHead?: boolean;      // d1: true=artificial head
+	diCompressed?: boolean;   // d2: true=compressed
+	diDynPty?: boolean;       // d3: true=dynamic PTY switching
 	pty?: number;
 	ptyLabel?: string;
 	tp?: boolean;
