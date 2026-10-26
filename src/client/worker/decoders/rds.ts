@@ -159,6 +159,34 @@ function eccToCountry(pi: number, ecc: number): string {
 	return row[cc - 1] || '--';
 }
 
+// ── PI coverage area codes (EN 50067 Annex D.4) ─────────────────
+const COVERAGE_NAMES: Record<number, string> = {
+	0: 'Local', 1: 'International', 2: 'National', 3: 'Supra-regional',
+	4: 'R1', 5: 'R2', 6: 'R3', 7: 'R4', 8: 'R5', 9: 'R6',
+	0xA: 'R7', 0xB: 'R8', 0xC: 'R9', 0xD: 'R10', 0xE: 'R11', 0xF: 'R12',
+};
+
+// ── RBDS callsign decode (NRSC-4-B Annex D) ─────────────────────
+// Standard 4-letter: PI 0x1000-0x54A7 -> K+3 letters, 0x54A8-0x994F -> W+3 letters
+// 3-letter exceptions: 0x9950-0x9EFF (abbreviated legacy callsigns)
+function rbdsCallsign(pi: number): string | null {
+	// Nibble-zero adjustments per NRSC-4-B D.7
+	if ((pi & 0xFFF0) === 0xAFA0 && (pi & 0xF) < 0xA) pi = (pi << 12) & 0xFFFF;
+	else if ((pi & 0xFF00) === 0xAF00) pi = (pi << 8) & 0xFFFF;
+	else if ((pi & 0xF000) === 0xA000) pi = (((pi & 0x0F00) << 4) | (pi & 0x00FF)) & 0xFFFF;
+
+	if (pi >= 0x1000 && pi <= 0x994F) {
+		let prefix: string, val: number;
+		if (pi <= 0x54A7) { prefix = 'K'; val = pi - 0x1000; }
+		else              { prefix = 'W'; val = pi - 0x54A8; }
+		return prefix +
+			String.fromCharCode(65 + Math.trunc(val / 676) % 26) +
+			String.fromCharCode(65 + Math.trunc(val / 26) % 26) +
+			String.fromCharCode(65 + val % 26);
+	}
+	return null;
+}
+
 // ── ODA Application IDs (IEC 62106 Table M.1) ───────────────────
 const ODA_AIDS: Record<number, string> = {
 	0x0093: 'Cross-referencing DAB', 0x0BCB: 'BBC Alert',
@@ -333,7 +361,7 @@ export class RDSDecoder {
 	private lastPtyn = '';
 
 	// Group 14A — EON
-	private eonMap: Map<number, { psChars: (string | null)[]; tp: boolean; ta: boolean; af: number[] }> = new Map();
+	private eonMap: Map<number, { psChars: (string | null)[]; tp: boolean; ta: boolean; af: number[]; lastKey: string }> = new Map();
 
 	constructor(sampleRate: number, callback: (msg: RDSMessage) => void, region = 'eu') {
 		this.callback = callback;
@@ -353,6 +381,9 @@ export class RDSDecoder {
 	setRegion(region: string): void {
 		if (region === this.region) return;
 		this.region = region;
+		if (this.pi) {
+			this.callback({ piCallsign: region === 'na' ? rbdsCallsign(this.pi) : null });
+		}
 		if (this.pty >= 0) {
 			const labels = region === 'na' ? PTY_LABELS_NA : PTY_LABELS_EU;
 			this.callback({ pty: this.pty, ptyLabel: labels[this.pty] || '' });
@@ -524,7 +555,17 @@ export class RDSDecoder {
 				this.odaMap.clear(); this.eonMap.clear();
 				this.rtPlusGroup = -1; this.rtPlusText1 = ''; this.rtPlusText2 = '';
 				this.pi = pi;
-				this.callback({ pi: pi.toString(16).toUpperCase().padStart(4, '0') });
+				const piCc       = (pi >> 12) & 0xf;
+				const piCoverage = (pi >> 8) & 0xf;
+				const piRef      = pi & 0xff;
+				const isRbds     = this.region === 'na';
+				this.callback({
+					pi: pi.toString(16).toUpperCase().padStart(4, '0'),
+					piCc, piCoverage,
+					piCoverageName: COVERAGE_NAMES[piCoverage] ?? '--',
+					piRef,
+					piCallsign: isRbds ? rbdsCallsign(pi) : null,
+				});
 			}
 		}
 
@@ -602,10 +643,13 @@ export class RDSDecoder {
 	// 1A paging state (suppress duplicate callbacks)
 	private rpc = -1;
 	private la = false;
+	private opc0 = -1;         // OPC from variant 0 (ECC block)
 	private pagingOpc = -1;
 	private pagingPac = -1;
 	private ewsChannel = -1;
 	private broadcasterData = -1;
+	private lastTmcId = -1;
+	private lastPin = -1;
 
 	private decodeGroup1A(blockB: number, bv: boolean[]): void {
 		// Block B bits [4:0]: Radio Paging Codes (EN 50067 Annex M, M.2.1.1.2)
@@ -622,24 +666,28 @@ export class RDSDecoder {
 		}
 
 		// Block D: Programme Item Number (day[15:11] hour[10:6] minute[5:0])
+		// Broadcast once per second -- suppress if unchanged.
+		// pinDay=0 means no valid PIN (spec page 24 note 3).
 		if (bv[3]) {
 			const pin = this.blocks[3];
-			const pinDay = (pin >> 11) & 0x1f;
-			// pinDay=0 means no valid PIN is being transmitted (spec note 3, page 24)
-			this.callback({ pin, pinDay, pinHour: (pin >> 6) & 0x1f, pinMinute: pin & 0x3f });
+			if (pin !== this.lastPin) {
+				this.lastPin = pin;
+				const pinDay = (pin >> 11) & 0x1f;
+				this.callback({ pin, pinDay, pinHour: (pin >> 6) & 0x1f, pinMinute: pin & 0x3f });
+			}
 		}
 
 		if (!bv[2]) return;
 		const c = this.blocks[2];
 
 		// Block C bit [15]: Linkage Actuator (LA) -- present on ALL variants
-		const la = (c >> 15) & 1;
-		if ((la !== 0) !== this.la) {
-			this.la = la !== 0;
-			this.callback({ la: this.la });
+		const la = ((c >> 15) & 1) !== 0;
+		if (la !== this.la) {
+			this.la = la;
+			this.callback({ la });
 		}
 
-		// Block C bits [14:12]: variant code
+		// Block C bits [14:12]: variant code; bits [11:0]: payload
 		const variant = (c >> 12) & 0x7;
 		const payload = c & 0x0fff;
 
@@ -647,10 +695,14 @@ export class RDSDecoder {
 			case 0: {
 				// ECC (Extended Country Code): bits [7:0]
 				// OPC (Operator Code for enhanced paging): bits [11:8]
+				// Note 2 in standard: "normally zero except when used for OPC in Radio Paging"
 				const ecc = payload & 0xff;
 				const opc = (payload >> 8) & 0xf;
-				if (ecc !== this.ecc) {
-					this.ecc = ecc;
+				const eccChanged = ecc !== this.ecc;
+				const opcChanged = opc !== this.opc0;
+				if (eccChanged || opcChanged) {
+					if (eccChanged) this.ecc = ecc;
+					if (opcChanged) this.opc0 = opc;
 					this.callback({ ecc, opc, countryName: eccToCountry(this.pi, ecc) });
 				}
 				break;
@@ -658,7 +710,10 @@ export class RDSDecoder {
 			case 1: {
 				// TMC identification: 12-bit TMC service ID
 				const tmcId = payload;
-				this.callback({ hasTmc: true, tmcId });
+				if (tmcId !== this.lastTmcId) {
+					this.lastTmcId = tmcId;
+					this.callback({ hasTmc: true, tmcId });
+				}
 				break;
 			}
 			case 2: {
@@ -711,12 +766,15 @@ export class RDSDecoder {
 
 	private decodeGroup1B(blockB: number, bv: boolean[]): void {
 		// Block B bits [4:0]: spare bits (reserved for future use, should be 0)
-		// Block D: PIN -- same layout as 1A
+		// Block D: PIN -- same layout as 1A, suppress if unchanged
 		void blockB;
 		if (bv[3]) {
 			const pin = this.blocks[3];
-			const pinDay = (pin >> 11) & 0x1f;
-			this.callback({ pin, pinDay, pinHour: (pin >> 6) & 0x1f, pinMinute: pin & 0x3f });
+			if (pin !== this.lastPin) {
+				this.lastPin = pin;
+				const pinDay = (pin >> 11) & 0x1f;
+				this.callback({ pin, pinDay, pinHour: (pin >> 6) & 0x1f, pinMinute: pin & 0x3f });
+			}
 		}
 	}
 
@@ -745,11 +803,11 @@ export class RDSDecoder {
 		const odaVersion  =  blockB & 1;
 		const aid = this.blocks[3];
 		const key = (odaGroupNum << 1) | odaVersion;
+		// Only emit when this group's AID assignment changes
+		if (this.odaMap.get(key) === aid) return;
 		this.odaMap.set(key, aid);
 		if (aid === 0x4BD7) this.rtPlusGroup = key;
-		const appName = ODA_AIDS[aid] ?? `ODA 0x${aid.toString(16).toUpperCase()}`;
 		this.callback({ odaAid: aid, odaGroup: odaGroupNum, odaVersion });
-		void appName;
 	}
 
 	// ── Group 4A: Clock Time (CT) ────────────────────────────────
@@ -791,9 +849,11 @@ export class RDSDecoder {
 		const eonPi = this.blocks[3];
 		if (!eonPi) return;
 		if (!this.eonMap.has(eonPi))
-			this.eonMap.set(eonPi, { psChars: new Array<string | null>(8).fill(null), tp: false, ta: false, af: [] });
+			this.eonMap.set(eonPi, { psChars: new Array<string | null>(8).fill(null), tp: false, ta: false, af: [], lastKey: '' });
 		const eon = this.eonMap.get(eonPi)!;
 		const variant = blockB & 0xf;
+		const prevTp = eon.tp;
+		const prevTa = eon.ta;
 		eon.tp = ((blockB >> 4) & 1) === 1;
 		if (variant <= 3 && bv[2]) {
 			const c = this.blocks[2];
@@ -811,6 +871,11 @@ export class RDSDecoder {
 		const ps = eon.psChars.every(ch => ch !== null)
 			? (eon.psChars as string[]).join('')
 			: undefined;
+		// Suppress callback if nothing changed since last emit
+		const key = `${eonPi}:${ps}:${eon.tp}:${eon.ta}:${eon.af.join(',')}`;
+		if (eon.lastKey === key) return;
+		eon.lastKey = key;
+		void prevTp; void prevTa;
 		this.callback({
 			eon: {
 				pi: eonPi.toString(16).toUpperCase().padStart(4, '0'),

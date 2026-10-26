@@ -9,6 +9,8 @@ const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false,
 	la: false, opc: 0, rpc: 0, rpcGroupDesig: 0, rpcBattSync: 0,
 	pagingOpc: -1, pagingPac: -1, ewsChannel: -1, broadcasterData: -1,
 	pinDay: 0, pinHour: 0, pinMinute: 0,
+	// PI breakdown
+	piCc: 0, piCoverage: 0, piCoverageName: '', piRef: 0, piCallsign: '' as string | null,
 };
 
 export const rdsMethods = {
@@ -51,7 +53,15 @@ export const rdsMethods = {
 		const freq = freqMhz ? this.formatFreq(freqMhz) + ' MHz' : '';
 		const stn = this._rdsStation(vfoIndex);
 
-		if (msg.pi !== undefined) { stn.pi = msg.pi; stn.freq = freq; }
+		if (msg.pi !== undefined) {
+			stn.pi = msg.pi; stn.freq = freq;
+			if (msg.piCc !== undefined)      stn.piCc = msg.piCc;
+			if (msg.piCoverage !== undefined) stn.piCoverage = msg.piCoverage;
+			if (msg.piCoverageName !== undefined) stn.piCoverageName = msg.piCoverageName;
+			if (msg.piRef !== undefined)     stn.piRef = msg.piRef;
+			if (msg.piCallsign !== undefined) stn.piCallsign = msg.piCallsign;
+		}
+		if (msg.piCallsign !== undefined && msg.pi === undefined) stn.piCallsign = msg.piCallsign;
 		if (msg.ps !== undefined) {
 			stn.ps = msg.ps;
 			stn.psCharStatus = msg.psCharStatus ?? [];

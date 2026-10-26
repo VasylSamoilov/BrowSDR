@@ -81,6 +81,11 @@ export interface RDSMessage {
 	ptyn?: string;
 	ptynCharStatus?: number[];  // per-char quality
 	pi?: string;
+	piCc?: number;            // PI bits [15:12]: country code nibble (1-F, 0=invalid)
+	piCoverage?: number;      // PI bits [11:8]: coverage area code
+	piCoverageName?: string;  // Coverage area name (Local/National/Regional/etc.)
+	piRef?: number;           // PI bits [7:0]: programme reference (0x00=not assigned)
+	piCallsign?: string;      // RBDS only: decoded K/W callsign (null for RDS)
 	pty?: number;
 	ptyLabel?: string;
 	tp?: boolean;
