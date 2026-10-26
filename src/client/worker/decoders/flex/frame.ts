@@ -77,6 +77,12 @@ const ALPHA_HDR_N_SHIFT = 13; // 6-bit message number
 const ALPHA_HDR_R_SHIFT = 19; // retrieval flag (R), first fragment only
 const ALPHA_HDR_M_SHIFT = 20; // mail-drop flag (M), first fragment only
 
+// HEX/Binary header-1 fields (frame.h FLEX_HEX_HDR_*) in body[0].
+// HEX K checksum is 12 bits (vs alpha's 10), so F/C/N are shifted up by 2.
+const HEX_HDR_C_SHIFT = 12; // message-continued flag
+const HEX_HDR_F_SHIFT = 13; // 2-bit fragment number (3 = first/only)
+const HEX_HDR_N_SHIFT = 15; // 6-bit message number
+
 // Secure message sub-type (frame.h FLEX_SEC_TYPE_*), in header bits 19-20.
 const SEC_TYPE_SHIFT = 19;
 const SEC_TYPE_MASK = 0x3;
@@ -437,7 +443,7 @@ function decodeAlpha(
 	// Initial fragment (F=11): the first data word's slot-0 is the signature.
 	const isInitial = vecType === VEC_ALPHA && hdrF === 3;
 	const startWord = isLong ? mw1 : mw1 + 1;
-	const endWord = isLong ? mw2 + 1 : mw2;
+	const endWord = mw2; // mw2 was already adjusted (mw2-- for long) so it's consistent for both
 
 	const isKanji = kanji && vecType === VEC_ALPHA;
 	const payload = extractAlphaPayload(words, status, startWord, endWord, isInitial, vecType, isKanji, cp);
@@ -595,8 +601,8 @@ function decodeNumericVector(
 
 /**
  * Decode a HEX/Binary (V=110) vector. The hdr1 word (at mw1 short, Vy=j+1 long)
- * carries the same F/C/N fragment fields as alpha; body[0] on an initial
- * fragment is Header-2 (control), skipped by parseBinaryHex. Multi-fragment
+ * carries F/C/N fragment fields at HEX-specific bit positions (K is 12-bit,
+ * so F/C/N are 2 bits higher than in the alpha header). Multi-fragment
  * HEX reassembles through the shared reassembler via frag/msgNum/hdrF.
  */
 function decodeHex(
@@ -609,9 +615,22 @@ function decodeHex(
 	base: Omit<FlexMessage, 'kind' | 'text'>,
 ): FlexMessage {
 	const hdrIdx = isLong ? j + 1 : mw1;
-	// HEX uses the alpha fragment header layout (parseAlphaHeader gates on
-	// VEC_ALPHA, so read F/C/N as if alpha).
-	const hdr = parseAlphaHeader(words, status, hdrIdx, VEC_ALPHA);
+	// HEX header-1 uses different bit positions from alpha (12-bit K vs 10-bit K).
+	let hdr: HexHeader;
+	if (hdrIdx >= FLEX_WORDS_PER_FRAME || wordLost(status[hdrIdx])) {
+		hdr = { frag: ' ', msgNum: -1, hdrF: 3, mailDrop: false, retrieval: false };
+	} else {
+		const w = words[hdrIdx];
+		const hdrC = (w >> HEX_HDR_C_SHIFT) & 0x01;
+		const hdrF = (w >> HEX_HDR_F_SHIFT) & 0x03;
+		const msgNum = (w >> HEX_HDR_N_SHIFT) & 0x3f;
+		let frag: string;
+		if (hdrC === 0 && hdrF === 3) frag = 'K'; // complete/unfragmented
+		else if (hdrC === 0) frag = 'C';           // final fragment
+		else frag = 'F';                            // continued
+		// R and M live in header-2 for HEX (not header-1), so always false here.
+		hdr = { frag, msgNum, hdrF, mailDrop: false, retrieval: false };
+	}
 	return hexMessage(words, status, isLong ? hdrIdx : mw1, mw2, hdr, 'HEX', base);
 }
 
@@ -684,6 +703,21 @@ export class FlexFrameDecoder {
 		return this.ber;
 	}
 
+	/** Reset BER to null (called on sync loss so hunt state reports no BER). */
+	resetBer(): void {
+		this.ber = null;
+	}
+
+	/** Reset network time/date info (called on sync loss so stale time doesn't
+	 * persist from a previous transmission into the new lock). */
+	resetNet(): void {
+		this.net.time = null;
+		this.net.date = null;
+		this.net.tzOffsetMin = null;
+		this.net.dst = null;
+		this.net.clock = null;
+	}
+
 	/** Accumulated network/temporal info from BIW words. */
 	getNetInfo(): FlexNetInfo {
 		return this.net;
@@ -736,6 +770,9 @@ export class FlexFrameDecoder {
 		if (tally.totalBits > 0) {
 			const frameBer = tally.errBits / tally.totalBits;
 			this.ber = this.ber === null ? frameBer : this.ber * 0.7 + frameBer * 0.3;
+			if (import.meta.env.DEV) console.log(
+				`[FLEX FRAME_BER] frame_ber=${(frameBer*100).toFixed(2)}% smooth_ber=${(this.ber*100).toFixed(2)}% errBits=${tally.errBits} totalBits=${tally.totalBits}`
+			);
 		}
 		return out;
 	}

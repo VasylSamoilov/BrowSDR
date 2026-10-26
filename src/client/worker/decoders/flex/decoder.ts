@@ -34,6 +34,16 @@ export class FlexDecoder {
 		// alpha. Resolve both and hand them to the frame decoder.
 		this.frames = FlexDecoder.buildFrames(charset);
 		this.frontend = new FlexFrontend(audioRate, {
+			onLock: (locked: boolean) => {
+				// Reset BER and network time when lock is lost so hunt state
+				// reports null and stale time from the previous TX doesn't persist.
+				// Clear sync event on both transitions so it never persists.
+				this.lastSyncEvent = null;
+				if (!locked) {
+					this.frames.resetBer();
+					this.frames.resetNet();
+				}
+			},
 			onMode: (mode: FlexMode, polarity: number) => {
 				this.mode = mode;
 				this.polarity = polarity;
@@ -124,7 +134,22 @@ export class FlexDecoder {
 			countryCode: net.countryCode,
 			tmf: net.tmf,
 			date: net.date,
-			time: net.time,
+			time: (() => {
+				// In standard mode, extrapolate time per frame (each frame = 1.875s).
+				// net.clock holds the confirmed TIME vote; use it to compute the
+				// current frame's wall time rather than the static voted string.
+				const c = net.clock;
+				if (!c || !fiw) return net.time;
+				const pad2 = (n: number) => String(n).padStart(2, '0');
+				let baseSec = c.min * 60 + c.coarseSec * 7.5;
+				if (c.extSec !== null) baseSec += c.extSec * 0.9375;
+				if (c.standardMode) baseSec += fiw.frame * 1.875;
+				let outMin = Math.floor(baseSec / 60);
+				const outSec = baseSec - outMin * 60;
+				let outHour = c.hour;
+				if (outMin >= 60) { outMin -= 60; outHour = (outHour + 1) % 24; }
+				return `${pad2(outHour)}:${pad2(outMin)}:${pad2(Math.trunc(outSec))}`;
+			})(),
 			tzOffsetMin: net.tzOffsetMin,
 			dst: net.dst,
 			groupSlots: this.frames

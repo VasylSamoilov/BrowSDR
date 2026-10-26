@@ -24,9 +24,37 @@ export const flexMethods = {
 	toggleFlex(this: AppInstance, i: number) {
 		applyPagerRxDefaults(this, i, this.vfos[i].flex);
 	},
-	_onFlexStatus(this: AppInstance, vfoIndex: number, _freqMhz: number, status: FlexStatus) {
+	_onFlexStatus(this: AppInstance, vfoIndex: number, freqMhz: number, status: FlexStatus) {
 		if (!this.flexStatus) this.flexStatus = [];
-		this.flexStatus[vfoIndex] = status;
+		// Carry last-known BER forward so the UI can dim it during hunt.
+		const prev = this.flexStatus[vfoIndex];
+		const lastBer = status.ber != null ? status.ber : (prev as (FlexStatus & { lastBer?: number }) | null)?.lastBer ?? null;
+
+		// Emit ERS and reserved sync codes as pager log entries (once per event).
+		const prevEvent = (prev as (FlexStatus & { lastBer?: number }) | null)?.lastSyncEvent;
+		const curEvent = status.lastSyncEvent;
+		if (curEvent && curEvent !== prevEvent &&
+			(!prevEvent || curEvent.code !== prevEvent.code || curEvent.label !== prevEvent.label)) {
+			const time = new Date().toLocaleTimeString();
+			const freq = freqMhz ? this.formatFreq(freqMhz) + ' MHz' : '';
+			this.pager.log.push({
+				protocol: 'flex',
+				time,
+				freq,
+				vfoIndex,
+				capcode: '',
+				type: 'alpha',
+				text: curEvent.ers
+					? `ERS: ${curEvent.label} (emergency re-sync)`
+					: `SYNC CODE: ${curEvent.label} [0x${curEvent.code.toString(16).padStart(4, '0')}]`,
+				charStatus: [],
+				baud: status.baud ?? undefined,
+				inverted: status.inverted,
+			});
+			pagerAutoScroll(this);
+		}
+
+		this.flexStatus[vfoIndex] = Object.assign(status, { lastBer });
 	},
 	/** Format a VFO's FLEX timezone offset (minutes from UTC) as "UTC+HH:MM". */
 	flexTzLabel(this: AppInstance, i: number): string {
