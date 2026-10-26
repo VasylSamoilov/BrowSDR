@@ -67,7 +67,7 @@
 		</UiFormRow>
 
 		<!-- POCSAG codepage selector (per-VFO). Shown when POCSAG is enabled and has charsets. -->
-		<UiFormRow v-if="vfo.mode === 'nfm' && vfo.pocsag" class="pocsag-charset-row">
+		<UiFormRow v-if="vfo.mode === 'nfm' && vfo.pocsag" class="pager-charset-row">
 			<label>Charset</label>
 			<select class="decoder-vfo-select"
 				:value="receiver.pocsagCharsetValue(i)"
@@ -79,7 +79,7 @@
 		</UiFormRow>
 
 		<!-- POCSAG type-detection mode + second-guess (NFM + POCSAG only) -->
-		<UiFormRow v-if="vfo.mode === 'nfm' && vfo.pocsag" class="pocsag-mode-row">
+		<UiFormRow v-if="vfo.mode === 'nfm' && vfo.pocsag" class="pager-mode-row">
 			<label>Type</label>
 			<select class="decoder-vfo-select"
 				:value="vfo.pocsagMode || 'auto'"
@@ -94,7 +94,7 @@
 		</UiFormRow>
 
 		<!-- POCSAG live link status: sync · speed · polarity · BER -->
-		<div class="pocsag-status-panel" v-if="vfo.mode === 'nfm' && vfo.pocsag"
+		<div class="pager-status-panel" v-if="vfo.mode === 'nfm' && vfo.pocsag"
 			style="padding:4px 8px;font-size:11px;font-family:monospace;line-height:1.6;background:rgba(0,0,0,0.3);border-radius:4px;margin:4px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
 			<span style="display:flex;align-items:center;gap:6px;">
 				<span :style="{ width:'8px',height:'8px',borderRadius:'50%',display:'inline-block',flexShrink:0,background: receiver.pocsagStatus[i]?.synced ? '#44cc44' : '#666' }"></span>
@@ -118,7 +118,7 @@
 		</UiFormRow>
 
 		<!-- GSC live link status: sync + BER -->
-		<div class="pocsag-status-panel" v-if="vfo.mode === 'nfm' && vfo.gsc"
+		<div class="pager-status-panel" v-if="vfo.mode === 'nfm' && vfo.gsc"
 			style="padding:4px 8px;font-size:11px;font-family:monospace;line-height:1.6;background:rgba(0,0,0,0.3);border-radius:4px;margin:4px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
 			<span style="display:flex;align-items:center;gap:6px;">
 				<span :style="{ width:'8px',height:'8px',borderRadius:'50%',display:'inline-block',flexShrink:0,background: receiver.gscStatus[i]?.synced ? '#44cc44' : '#666' }"></span>
@@ -138,7 +138,7 @@
 		<!-- FLEX charset: ASCII default, or Kanji (switches alpha decoding to
 		     16-bit Shift-JIS). Selecting a handler charset changes the decode
 		     logic, it is not a glyph-table remap. -->
-		<UiFormRow v-if="vfo.mode === 'nfm' && vfo.flex" class="pocsag-charset-row">
+		<UiFormRow v-if="vfo.mode === 'nfm' && vfo.flex" class="pager-charset-row">
 			<label>Charset</label>
 			<select class="decoder-vfo-select"
 				:value="receiver.flexCharsetValue(i)"
@@ -152,7 +152,7 @@
 		<!-- FLEX live link status: lock, pipeline stage, polarity, air mode,
 		     cycle/frame, BER, and network/temporal data from BIW (system id,
 		     country, date/time/timezone when the transmitter broadcasts them). -->
-		<div class="pocsag-status-panel" v-if="vfo.mode === 'nfm' && vfo.flex"
+		<div class="pager-status-panel" v-if="vfo.mode === 'nfm' && vfo.flex"
 			style="padding:4px 8px;font-size:11px;font-family:monospace;line-height:1.6;background:rgba(0,0,0,0.3);border-radius:4px;margin:4px 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
 			<span style="display:flex;align-items:center;gap:6px;">
 				<span :style="{ width:'8px',height:'8px',borderRadius:'50%',display:'inline-block',flexShrink:0,background: receiver.flexStatus[i]?.locked ? '#44cc44' : '#666' }"></span>

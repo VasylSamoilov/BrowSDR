@@ -206,7 +206,7 @@
 	flex-shrink: 0;
 }
 
-.pocsag-capcode {
+.pager-capcode {
 	color: #80cbc4;
 	flex-shrink: 0;
 	font-size: 10px;
@@ -221,31 +221,31 @@
 	letter-spacing: 0.5px;
 }
 
-.pocsag-type-alpha {
+.pager-type-alpha {
 	background: #1b5e20;
 	color: #a5d6a7;
 }
-.pocsag-type-numeric {
+.pager-type-numeric {
 	background: #1a237e;
 	color: #90caf9;
 }
-.pocsag-type-tone {
+.pager-type-tone {
 	background: #4a148c;
 	color: #ce93d8;
 }
-.pocsag-type-voice {
+.pager-type-voice {
 	background: #01579b;
 	color: #81d4fa;
 }
 
-.pocsag-baud {
+.pager-baud {
 	color: #666;
 	font-size: 9px;
 	flex-shrink: 0;
 }
 
 /* FLEX air-mode chip (speed / FSK), styled like the .msgcenter-type chips. */
-.pocsag-flex-mode {
+.pager-flex-mode {
 	font-size: 9px;
 	font-weight: 700;
 	padding: 0px 4px;
@@ -257,7 +257,7 @@
 }
 
 /* FLEX calculated network-time tag (over-the-air clock), muted green. */
-.pocsag-flex-time {
+.pager-flex-time {
 	font-size: 9px;
 	font-weight: 700;
 	padding: 0px 4px;
@@ -269,26 +269,26 @@
 }
 
 /* FLEX phase tag, styled like the POCSAG function tag (plain light-purple). */
-.pocsag-flex-phase {
+.pager-flex-phase {
 	color: #b39ddb;
 	font-size: 10px;
 	flex-shrink: 0;
 }
 
 /* FLEX polarity, matching the POCSAG/GSC status NORM/INV convention. */
-.pocsag-flex-pol {
+.pager-flex-pol {
 	font-size: 9px;
 	font-weight: 700;
 	flex-shrink: 0;
 }
-.pocsag-flex-pol-norm {
+.pager-flex-pol-norm {
 	color: #88aacc;
 }
-.pocsag-flex-pol-inv {
+.pager-flex-pol-inv {
 	color: #ffcc44;
 }
 
-.pocsag-text {
+.msgcenter-text {
 	color: #e0e0e0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -297,15 +297,15 @@
 	min-width: 0;
 }
 
-.pocsag-tone {
+.pager-tone {
 	color: #888;
 	font-style: italic;
 }
 
 /* Second-guess (runner-up interpretation): dimmed, and allowed to SHRINK and
  * ellipsize so it never covers the primary decoded text. The primary
- * .pocsag-text keeps priority; the alt is capped to a fraction of the row. */
-.pocsag-alt {
+ * .msgcenter-text keeps priority; the alt is capped to a fraction of the row. */
+.pager-alt {
 	color: #777;
 	font-style: italic;
 	opacity: 0.7;
@@ -320,15 +320,15 @@
 }
 
 /* Per-character decode confidence colouring */
-.pocsag-seg-0 {
+.pager-seg-0 {
 	/* ok — inherits normal text colour */
 	color: inherit;
 }
-.pocsag-seg-1 {
+.pager-seg-1 {
 	/* BCH-corrected — amber so it reads clearly as "repaired", not just dim */
 	color: #ffca28;
 }
-.pocsag-seg-2 {
+.pager-seg-2 {
 	/* uncorrectable — bold red on a red tint; glyph is a plain '?' placeholder */
 	color: #ff5252;
 	font-weight: 700;

@@ -21,16 +21,16 @@
 				:style="[entry.vfoIndex != null ? { borderLeftColor: vfoColor(entry.vfoIndex) } : {}, (entry.protocol === 'flex' && entry.reasmKey && !entry.complete) ? { borderLeftColor: '#ffb74d', opacity: 0.65 } : {}]">
 				<span class="msgcenter-vfo-dot" v-if="entry.vfoIndex != null" :style="{ background: vfoColor(entry.vfoIndex) }" :title="'VFO ' + (entry.vfoIndex + 1)"></span>
 				<span class="msgcenter-time">{{ entry.time }}</span>
-				<span class="pocsag-proto" :title="'Protocol: ' + entry.protocol" style="flex-shrink:0;font-size:9px;font-weight:700;letter-spacing:0.5px;padding:1px 4px;border-radius:3px;background:rgba(255,255,255,0.1);">{{ entry.protocol.toUpperCase() }}</span>
+				<span class="pager-proto" :title="'Protocol: ' + entry.protocol" style="flex-shrink:0;font-size:9px;font-weight:700;letter-spacing:0.5px;padding:1px 4px;border-radius:3px;background:rgba(255,255,255,0.1);">{{ entry.protocol.toUpperCase() }}</span>
 				<span class="msgcenter-freq" :style="entry.vfoIndex != null ? { color: vfoColor(entry.vfoIndex) } : {}">{{ entry.freq }}</span>
-				<span class="pocsag-capcode" title="Capcode (pager address)">CAP:{{ entry.capcode }}</span>
+				<span class="pager-capcode" title="Capcode (pager address)">CAP:{{ entry.capcode }}</span>
 				<span v-if="entry.protocol === 'flex' && entry.capClass && entry.capClass !== 'short' && entry.capClass !== 'long'" :title="'Capcode class: ' + entry.capClass" style="color:#ce93d8;flex-shrink:0;font-size:9px;font-weight:700;text-transform:uppercase;">{{ flexCapClassLabel(entry.capClass) }}</span>
 				<span v-if="entry.protocol === 'flex' && entry.groupMembers && entry.groupMembers.length" :title="'Group members: ' + flexMembers(entry.groupMembers)" style="color:#80cbc4;flex-shrink:0;font-size:9px;font-weight:700;">&#128101;{{ entry.groupMembers.length }}</span>
-				<span class="pocsag-func" v-if="entry.func != null" title="Function / sub-address (A-D)" style="color:#b39ddb;flex-shrink:0;font-size:10px;">F:{{ ['A','B','C','D'][entry.func] || '?' }}</span>
+				<span class="pager-func" v-if="entry.func != null" title="Function / sub-address (A-D)" style="color:#b39ddb;flex-shrink:0;font-size:10px;">F:{{ ['A','B','C','D'][entry.func] || '?' }}</span>
 				<!-- FLEX per-message flags: phase (func-tag style), polarity (NORM/INV like POCSAG/GSC) -->
-				<span v-if="entry.protocol === 'flex' && entry.phase" class="pocsag-flex-phase" title="FLEX phase (A-D)">PH:{{ entry.phase }}</span>
-				<span v-if="entry.protocol === 'flex' && entry.flexCycle != null && entry.flexCycle >= 0" class="pocsag-flex-phase" title="FLEX cycle / frame">C{{ String(entry.flexCycle).padStart(2, '0') }}/F{{ String(entry.flexFrame).padStart(3, '0') }}</span>
-				<span v-if="entry.protocol === 'flex' && entry.flexBaud" class="pocsag-flex-pol" :class="entry.inverted ? 'pocsag-flex-pol-inv' : 'pocsag-flex-pol-norm'" :title="entry.inverted ? 'Inverted polarity' : 'Normal polarity'">{{ entry.inverted ? 'INV' : 'NORM' }}</span>
+				<span v-if="entry.protocol === 'flex' && entry.phase" class="pager-flex-phase" title="FLEX phase (A-D)">PH:{{ entry.phase }}</span>
+				<span v-if="entry.protocol === 'flex' && entry.flexCycle != null && entry.flexCycle >= 0" class="pager-flex-phase" title="FLEX cycle / frame">C{{ String(entry.flexCycle).padStart(2, '0') }}/F{{ String(entry.flexFrame).padStart(3, '0') }}</span>
+				<span v-if="entry.protocol === 'flex' && entry.flexBaud" class="pager-flex-pol" :class="entry.inverted ? 'pager-flex-pol-inv' : 'pager-flex-pol-norm'" :title="entry.inverted ? 'Inverted polarity' : 'Normal polarity'">{{ entry.inverted ? 'INV' : 'NORM' }}</span>
 				<span v-if="entry.protocol === 'flex' && entry.reasmKey && !entry.complete" title="Incomplete message, reassembling (updates in place)" style="color:#ffb74d;flex-shrink:0;font-size:9px;font-weight:700;">&#8943; PARTIAL<template v-if="entry.fragCount"> ({{ entry.fragCount }})</template></span>
 				<span v-else-if="entry.protocol === 'flex' && entry.reasmKey && entry.complete" title="Reassembled from fragments" style="color:#4fc3f7;flex-shrink:0;font-size:9px;font-weight:700;">REASM<template v-if="entry.fragCount"> ({{ entry.fragCount }})</template></span>
 				<span v-if="entry.protocol === 'flex' && entry.complete && entry.incomplete" title="Reassembled but missing fragment(s) -- partial content" style="color:#ff8a65;flex-shrink:0;font-size:9px;font-weight:700;">INCOMPLETE</span>
@@ -46,20 +46,20 @@
 				<span v-else-if="entry.protocol === 'flex' && entry.kOk === false" title="K checksum FAILED" style="color:#ff5252;flex-shrink:0;font-size:9px;font-weight:700;">K&#10007;</span>
 				<span v-if="entry.protocol === 'flex' && entry.sigOk === true" title="Signature OK" style="color:#66bb6a;flex-shrink:0;font-size:9px;font-weight:700;">S&#10003;</span>
 				<span v-else-if="entry.protocol === 'flex' && entry.sigOk === false" title="Signature FAILED" style="color:#ff5252;flex-shrink:0;font-size:9px;font-weight:700;">S&#10007;</span>
-				<span v-if="entry.protocol === 'flex' && entry.flexBaud" class="pocsag-flex-mode" :title="'Air mode: ' + entry.flexBaud + 'bps / ' + entry.flexLevels + '-FSK'">{{ entry.flexBaud }}/{{ entry.flexLevels }}FSK</span>
-				<span v-if="entry.protocol === 'flex' && entry.flexTime" class="pocsag-flex-time" title="Calculated FLEX network time (over-the-air clock)">&#128340; {{ entry.flexTime }}</span>
-				<span class="msgcenter-type" :class="'pocsag-type-' + (entry.voiceEvent ? 'voice' : entry.type)">{{ entry.type.toUpperCase() }}</span>
-				<span class="pocsag-baud" v-if="entry.baud">{{ entry.baud }}Bd</span>
-				<span class="pocsag-check" v-if="entry.uncorrectableCount" title="Uncorrectable codewords (FEC decode failed)" style="flex-shrink:0;font-size:9px;font-weight:700;color:#ff5252;">✗{{ entry.uncorrectableCount }}</span>
-				<span class="pocsag-check" v-else-if="entry.errorCount" title="FEC-corrected codewords (checksum OK)" style="flex-shrink:0;font-size:9px;font-weight:700;color:#ffca28;">✓~{{ entry.errorCount }}</span>
-				<span class="pocsag-check" v-else-if="entry.protocol === 'gsc' && (entry.type === 'alpha' || entry.type === 'numeric')" title="Checksum OK, no errors" style="flex-shrink:0;font-size:9px;font-weight:700;color:#66bb6a;">✓</span>
-				<span class="pocsag-voice" v-if="entry.voiceEvent === 'start'" style="flex:1;min-width:0;color:#4fc3f7;font-weight:700;">▶ VOICE START — listen</span>
-				<span class="pocsag-voice" v-else-if="entry.voiceEvent === 'stop'" style="flex:1;min-width:0;color:#4fc3f7;">■ VOICE END<span v-if="entry.voiceEndReason" style="opacity:0.7;font-size:10px;">&nbsp;({{ entry.voiceEndReason }})</span></span>
-				<span class="pocsag-text" v-else-if="entry.text"><span v-for="(seg, si) in pagerSegments(entry)" :key="si"
-					:class="'pocsag-seg-' + seg.status">{{ seg.text }}</span></span>
-				<span class="pocsag-text pocsag-tone" v-else>(tone only)</span>
-				<span class="pocsag-alt" v-if="entry.alt && entry.alt.text" title="Second guess (runner-up interpretation)">({{ entry.alt.type }}: {{ pagerDisplayText(entry.alt.text) }})</span>
-				<span class="pocsag-detect" v-if="entry.detectDebug" style="color:#777;font-size:9px;flex-shrink:0;">{{ entry.detectDebug }}</span>
+				<span v-if="entry.protocol === 'flex' && entry.flexBaud" class="pager-flex-mode" :title="'Air mode: ' + entry.flexBaud + 'bps / ' + entry.flexLevels + '-FSK'">{{ entry.flexBaud }}/{{ entry.flexLevels }}FSK</span>
+				<span v-if="entry.protocol === 'flex' && entry.flexTime" class="pager-flex-time" title="Calculated FLEX network time (over-the-air clock)">&#128340; {{ entry.flexTime }}</span>
+				<span class="msgcenter-type" :class="'pager-type-' + (entry.voiceEvent ? 'voice' : entry.type)">{{ entry.type.toUpperCase() }}</span>
+				<span class="pager-baud" v-if="entry.baud">{{ entry.baud }}Bd</span>
+				<span class="pager-check" v-if="entry.uncorrectableCount" title="Uncorrectable codewords (FEC decode failed)" style="flex-shrink:0;font-size:9px;font-weight:700;color:#ff5252;">✗{{ entry.uncorrectableCount }}</span>
+				<span class="pager-check" v-else-if="entry.errorCount" title="FEC-corrected codewords (checksum OK)" style="flex-shrink:0;font-size:9px;font-weight:700;color:#ffca28;">✓~{{ entry.errorCount }}</span>
+				<span class="pager-check" v-else-if="entry.protocol === 'gsc' && (entry.type === 'alpha' || entry.type === 'numeric')" title="Checksum OK, no errors" style="flex-shrink:0;font-size:9px;font-weight:700;color:#66bb6a;">✓</span>
+				<span class="pager-voice" v-if="entry.voiceEvent === 'start'" style="flex:1;min-width:0;color:#4fc3f7;font-weight:700;">▶ VOICE START — listen</span>
+				<span class="pager-voice" v-else-if="entry.voiceEvent === 'stop'" style="flex:1;min-width:0;color:#4fc3f7;">■ VOICE END<span v-if="entry.voiceEndReason" style="opacity:0.7;font-size:10px;">&nbsp;({{ entry.voiceEndReason }})</span></span>
+				<span class="msgcenter-text" v-else-if="entry.text"><span v-for="(seg, si) in pagerSegments(entry)" :key="si"
+					:class="'pager-seg-' + seg.status">{{ seg.text }}</span></span>
+				<span class="msgcenter-text pager-tone" v-else>(tone only)</span>
+				<span class="pager-alt" v-if="entry.alt && entry.alt.text" title="Second guess (runner-up interpretation)">({{ entry.alt.type }}: {{ pagerDisplayText(entry.alt.text) }})</span>
+				<span class="pager-detect" v-if="entry.detectDebug" style="color:#777;font-size:9px;flex-shrink:0;">{{ entry.detectDebug }}</span>
 			</div>
 		</div>
 	</div>
