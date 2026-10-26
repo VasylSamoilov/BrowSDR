@@ -137,10 +137,14 @@ export interface RDSMessage {
 	// Group 14A (EON)
 	eon?: { pi: string; ps?: string; tp: boolean; ta: boolean; af?: number[] };
 	// Group 3A RT+ ODA (AID 0x4BD7) and Group 11A RT+ data
-	rtPlusItem1?: string;   // Now-playing tag 1 text (e.g. artist)
-	rtPlusItem1Tag?: number;
-	rtPlusItem2?: string;   // Now-playing tag 2 text (e.g. title)
-	rtPlusItem2Tag?: number;
+	rtPlusRunning?: boolean;    // item_running flag (true=item active)
+	rtPlusToggle?: number;      // item_toggle bit (0 or 1, change = new item)
+	rtPlusItem1?: string;       // Tag 1 text extracted from RT
+	rtPlusItem1Tag?: number;    // Tag 1 content type code (1-63)
+	rtPlusItem1Name?: string;   // Tag 1 content type name (e.g. "Title", "Artist")
+	rtPlusItem2?: string;       // Tag 2 text extracted from RT
+	rtPlusItem2Tag?: number;    // Tag 2 content type code
+	rtPlusItem2Name?: string;   // Tag 2 content type name
 	// Group 0A AF list
 	af?: number[];          // Alternative frequencies in kHz
 	// Paging (ODA AID 0x3DC5 / Group 1A pager variant / Group 7A)

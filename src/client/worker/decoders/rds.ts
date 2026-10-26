@@ -270,6 +270,26 @@ function rdsChar(code: number, region: string): string {
 
 
 
+// ── RT+ content type names (IEC 62106-6 Table A.1) ──────────────
+const RTPLUS_TYPES: (string | null)[] = [
+	null,                    // 0: dummy_class (no tag)
+	'Title', 'Album', 'Track#', 'Artist', 'Composition', 'Movement',
+	'Conductor', 'Composer', 'Band', 'Comment', 'Genre',           // 1-11
+	'News', 'Local News', 'Stock Market', 'Sport', 'Lottery',
+	'Horoscope', 'Daily Div.', 'Health', 'Event', 'Scene',
+	'Cinema', 'TV', 'Date/Time', 'Weather', 'Traffic',
+	'Alarm', 'Ad', 'URL', 'Other Info',                           // 12-30
+	'Station (short)', 'Station (long)',                          // 31-32
+	'Prog. Now', 'Prog. Next', 'Prog. Part', 'Host',
+	'Editorial', 'Frequency', 'Homepage', 'Subchannel',           // 33-40
+	'Hotline', 'Studio Phone', 'Other Phone',                     // 41-43
+	'SMS Studio', 'SMS Other',                                    // 44-45
+	'Email Hotline', 'Email Studio', 'Email Other',               // 46-48
+	'MMS', 'Chat', 'Chat Centre', 'Vote Q', 'Vote Centre',        // 49-53
+	null, null, null, null, null,                                  // 54-58: reserved
+	'Place', 'Appointment', 'Identifier', 'Purchase', 'Get Data', // 59-63
+];
+
 export class RDSDecoder {
 	private callback: (msg: RDSMessage) => void;
 	private region: string;
@@ -357,6 +377,8 @@ export class RDSDecoder {
 	private rtPlusText2 = '';
 	private rtPlusTag1 = 0;
 	private rtPlusTag2 = 0;
+	private rtPlusToggle = -1;   // last seen toggle bit (-1=unknown)
+	private rtPlusRunning = -1;  // last seen item_running bit
 
 	// Group 4A — CT clock
 	private lastCt = '';
@@ -841,7 +863,11 @@ export class RDSDecoder {
 	// ── Group 2: RadioText ───────────────────────────────────────
 	private decodeGroup2(version: number, blockB: number, bv: boolean[]): void {
 		const abFlag = (blockB >> 4) & 1;
-		if (abFlag !== this.rtAbFlag || version !== this.rtVersion) { this.rtChars.fill(null); this.rtStatus.fill(0); this.lastRt = ''; }
+		if (abFlag !== this.rtAbFlag || version !== this.rtVersion) {
+			this.rtChars.fill(null); this.rtStatus.fill(0); this.lastRt = '';
+			// RT A/B flip invalidates RT+ tag positions (they reference old RT)
+			this.clearRtPlus();
+		}
 		this.rtAbFlag = abFlag; this.rtVersion = version;
 		const seg = blockB & 0x0f;
 		if (version === 0) {
@@ -989,25 +1015,70 @@ export class RDSDecoder {
 			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3]);
 	}
 
-	// ── RT+ tag extraction (IEC 62106-6) ────────────────────────
+	// ── RT+ tag extraction (IEC 62106-6 A.5.3) ──────────────────
+	// Called when RT A/B flag changes to invalidate tag positions
+	private clearRtPlus(): void {
+		if (this.rtPlusText1 || this.rtPlusText2) {
+			this.rtPlusText1 = ''; this.rtPlusText2 = '';
+			this.callback({ rtPlusItem1: undefined, rtPlusItem2: undefined });
+		}
+	}
+
 	private decodeRtPlus(b: number, c: number, d: number): void {
-		const running  = (b >> 3) & 1;
+		// Block B: bit 4 = item_toggle, bit 3 = item_running, bits [2:0] = tag1 CT high
+		const toggle  = (b >> 4) & 1;
+		const running = (b >> 3) & 1;
+
+		// Toggle change = new item (IEC 62106-6 A.5.3 note 3)
+		const newItem = this.rtPlusToggle !== -1 && toggle !== this.rtPlusToggle;
+		this.rtPlusToggle = toggle;
+
+		// Running change tracking (independent from tags, A.5.3 note 2)
+		const runningChanged = this.rtPlusRunning !== -1 && running !== this.rtPlusRunning;
+		this.rtPlusRunning = running;
+
+		// Tag1: content_type = b[2:0]<<3 | c[15:13], start = c[12:7], length-1 = c[6:1]
 		const tag1Type  = ((b & 0x7) << 3) | (c >> 13);
 		const tag1Start = (c >> 7) & 0x3f;
-		const tag1Len   = (c >> 1) & 0x3f;
+		const tag1Len   = ((c >> 1) & 0x3f) + 1;  // stored as length-1
+
+		// Tag2: content_type = c[0]<<5 | d[15:11], start = d[10:5], length-1 = d[4:0]
 		const tag2Type  = ((c & 1) << 5) | (d >> 11);
 		const tag2Start = (d >> 5) & 0x3f;
-		const tag2Len   =  d       & 0x1f;
+		const tag2Len   = (d & 0x1f) + 1;  // stored as length-1
+
 		const rt = this.lastRt;
-		const extract = (s: number, l: number) => s < rt.length ? rt.slice(s, Math.min(s + l + 1, rt.length)).trim() : '';
+		const extract = (s: number, l: number) =>
+			s < rt.length ? rt.slice(s, Math.min(s + l, rt.length)).trimEnd() : '';
+
+		// type=0 (dummy_class) means no tag; only extract when item is running
 		const t1 = tag1Type > 0 && running ? extract(tag1Start, tag1Len) : '';
 		const t2 = tag2Type > 0 && running ? extract(tag2Start, tag2Len) : '';
-		if ((t1 && t1 !== this.rtPlusText1) || (t2 && t2 !== this.rtPlusText2)) {
+
+		const tag1Name = RTPLUS_TYPES[tag1Type] ?? `CT${tag1Type}`;
+		const tag2Name = RTPLUS_TYPES[tag2Type] ?? `CT${tag2Type}`;
+
+		const changed = t1 !== this.rtPlusText1 || t2 !== this.rtPlusText2
+			|| tag1Type !== this.rtPlusTag1 || tag2Type !== this.rtPlusTag2
+			|| newItem || runningChanged;
+
+		if (changed) {
+			if (newItem) {
+				// New item: clear stale tags
+				this.rtPlusText1 = ''; this.rtPlusText2 = '';
+				this.rtPlusTag1 = 0; this.rtPlusTag2 = 0;
+			}
 			this.rtPlusText1 = t1; this.rtPlusText2 = t2;
 			this.rtPlusTag1 = tag1Type; this.rtPlusTag2 = tag2Type;
 			this.callback({
-				rtPlusItem1: t1 || undefined, rtPlusItem1Tag: tag1Type || undefined,
-				rtPlusItem2: t2 || undefined, rtPlusItem2Tag: tag2Type || undefined,
+				rtPlusRunning: running === 1,
+				rtPlusToggle: toggle,
+				rtPlusItem1: t1 || undefined,
+				rtPlusItem1Tag: tag1Type || undefined,
+				rtPlusItem1Name: tag1Type > 0 ? tag1Name : undefined,
+				rtPlusItem2: t2 || undefined,
+				rtPlusItem2Tag: tag2Type || undefined,
+				rtPlusItem2Name: tag2Type > 0 ? tag2Name : undefined,
 			});
 		}
 	}

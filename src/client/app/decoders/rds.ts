@@ -3,7 +3,7 @@ import type { AppInstance } from '@/app/core/receiver.types';
 
 const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false, ta: false, freq: '',
 	ptyn: '', ct: '', ctUtcOffset: 0 as number | null, ecc: -1, countryName: '', lic: -1, languageName: '',
-	af: [] as number[], hasTmc: false, tmcId: -1, rtPlusItem1: '', rtPlusItem1Tag: 0, rtPlusItem2: '', rtPlusItem2Tag: 0,
+	af: [] as number[], hasTmc: false, tmcId: -1, rtPlusItem1: '', rtPlusItem1Tag: 0, rtPlusItem1Name: '', rtPlusItem2: '', rtPlusItem2Tag: 0, rtPlusItem2Name: '', rtPlusRunning: false,
 	psCharStatus: [] as number[], rtCharStatus: [] as number[],
 	// Group 1A extras
 	la: false, opc: 0, rpc: 0, rpcGroupDesig: 0, rpcBattSync: 0,
@@ -119,10 +119,19 @@ export const rdsMethods = {
 			stn.pinMinute = msg.pinMinute ?? 0;
 		}
 		if (msg.rtPlusItem1 !== undefined) {
-			stn.rtPlusItem1 = msg.rtPlusItem1 || '';
-			stn.rtPlusItem1Tag = msg.rtPlusItem1Tag || 0;
-			stn.rtPlusItem2 = msg.rtPlusItem2 || '';
-			stn.rtPlusItem2Tag = msg.rtPlusItem2Tag || 0;
+			stn.rtPlusItem1     = msg.rtPlusItem1 || '';
+			stn.rtPlusItem1Tag  = msg.rtPlusItem1Tag || 0;
+			stn.rtPlusItem1Name = msg.rtPlusItem1Name || '';
+			stn.rtPlusItem2     = msg.rtPlusItem2 || '';
+			stn.rtPlusItem2Tag  = msg.rtPlusItem2Tag || 0;
+			stn.rtPlusItem2Name = msg.rtPlusItem2Name || '';
+			if (msg.rtPlusRunning !== undefined) stn.rtPlusRunning = msg.rtPlusRunning;
+			if (msg.rtPlusItem1 || msg.rtPlusItem2) {
+				const t1 = msg.rtPlusItem1Name ? `[${msg.rtPlusItem1Name}] ${msg.rtPlusItem1}` : msg.rtPlusItem1 || '';
+				const t2 = msg.rtPlusItem2Name ? `[${msg.rtPlusItem2Name}] ${msg.rtPlusItem2}` : msg.rtPlusItem2 || '';
+				const val = [t1, t2].filter(Boolean).join('  ');
+				this.rds.log.push({ time, field: 'RT+', value: val, freq, vfoIndex, group: msg.srcGroup });
+			}
 		}
 		if (msg.eon !== undefined) {
 			this.rds.log.push({ time, field: 'EON', value: `PI:${msg.eon.pi}${msg.eon.ps ? ' PS:' + msg.eon.ps.trim() : ''}`, freq, vfoIndex });
