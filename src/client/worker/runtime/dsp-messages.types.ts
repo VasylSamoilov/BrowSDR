@@ -23,6 +23,7 @@ export type DspOutput =
 	| BleMessage
 	| AcarsMessage
 	| { type: 'rds'; msg: RDSMessage }
+	| { type: 'rds_status'; status: import('./../../worker/decoders/rds').RdsStatus }
 	| { type: 'dsd_status'; status: DSDStatus }
 	| { type: 'dsp_debug_log'; level: 'log' | 'warn' | 'error'; message: string }
 	| { type: 'error'; error: string; inputSamples?: number; chunkId?: number }

@@ -336,6 +336,9 @@ export const connectionMethods = {
 				Comlink.proxy((vfoIndex: number, freq: number, msg: Parameters<AppInstance['_onRdsMessage']>[2]) =>
 					this._onRdsMessage(vfoIndex, freq, msg),
 				),
+				Comlink.proxy((vfoIndex: number, freq: number, status: Parameters<AppInstance['_onRdsStatus']>[2]) =>
+					this._onRdsStatus(vfoIndex, freq, status),
+				),
 				Comlink.proxy((vfoIndex: number, status: Parameters<AppInstance['_onDsdStatus']>[1]) => this._onDsdStatus(vfoIndex, status)),
 				Comlink.proxy((vfoIndex: number, freq: number, msg: Parameters<AppInstance['_onRtl433Message']>[2]) =>
 					this._onRtl433Message(vfoIndex, freq, msg),

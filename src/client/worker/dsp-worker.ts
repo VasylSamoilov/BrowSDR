@@ -130,6 +130,7 @@ let systemSampleRate = 2000000;
 // DSD decoder state (per-worker, one DSD decoder per VFO)
 let dsdStream: DSDStream | null = null;
 const dsdStatus = new LatestStatus<DSDStatus>((status) => self.postMessage({ type: 'dsd_status', status }));
+const rdsStatusThrottle = new LatestStatus<import('./decoders/rds').RdsStatus>((status) => self.postMessage({ type: 'rds_status', status }), 500);
 
 self.onmessage = async (e: MessageEvent<DspInput>) => {
 	const msg = e.data;
@@ -255,8 +256,7 @@ function configureDDC(params: VfoParams, systemCenterFreq: number): void {
 				},
 				params.rdsRegion || 'eu',
 			);
-		}
-		rdsDecoder.setRegion(params.rdsRegion || 'eu');
+		}		rdsDecoder.setRegion(params.rdsRegion || 'eu');
 		rdsDdc.set_shift(systemSampleRate, offsetFreq);
 	} else {
 		if (rdsDdc) {
@@ -511,6 +511,7 @@ function handleDspProcess(msg: Extract<DspInput, { type: 'process' }>) {
 		// Complete decoder work before acknowledging the input. Otherwise replies
 		// let the sender queue more input while RDS is still using this worker.
 		decodeRdsChunk(msg);
+		if (rdsDecoder) rdsStatusThrottle.push(rdsDecoder.getStatus());
 		pagerLegs?.process(msg.chunkLen, msg.chunkId);
 		const processEnd = performance.now();
 		const dspTime = processEnd - processStart;

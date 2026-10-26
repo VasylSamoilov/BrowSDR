@@ -19,6 +19,7 @@ import type { Vfo } from './types';
 import type { WorkspaceInstance } from '@/app/workspace/types';
 import type { WhisperMessage } from '@/transcription/types';
 import type { RDSMessage, POCSAGMessage, POCSAGStatus, Rtl433Protocol, Rtl433Message } from '@/worker/decoders/types';
+import type { RdsStatus } from '@/worker/decoders/rds';
 import type { GSCMessage, GSCStatus } from '@/worker/decoders/types';
 import type { FlexMessage, FlexStatus } from '@/worker/decoders/types';
 import type { PagerLogEntry } from '@/app/decoders/types';
@@ -209,6 +210,7 @@ export interface ReceiverMethods {
 	_rdsStation(vfoIndex: number): AppInstance['rds']['stations'][number];
 	rdsActive(): AppInstance['rds']['stations'][number];
 	_onRdsMessage(vfoIndex: number, freqMhz: number, msg: RDSMessage): void;
+	_onRdsStatus(vfoIndex: number, freqMhz: number, status: RdsStatus): void;
 	setRdsRegion(vfoIndex: number, region: string): void;
 	toggleDisplayLock(): void;
 	handleWheelZoom(e: WheelEvent, rect: DOMRect): void;

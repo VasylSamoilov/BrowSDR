@@ -9,6 +9,7 @@ import type {
 	WhisperCallback,
 	PagerCallbacks,
 	RdsCallback,
+	RdsStatusCallback,
 	Rtl433Callback,
 	AdsbCallback,
 	AisCallback,
@@ -56,6 +57,7 @@ export async function startRxStream(
 	whisperCallback: WhisperCallback | null,
 	pager: PagerCallbacks,
 	rdsCallback: RdsCallback | null = null,
+	rdsStatusCallback: RdsStatusCallback | null = null,
 	dsdStatusCallback: DsdCallback | null = null,
 	rtl433Callback: Rtl433Callback | null = null,
 	adsbCallback: AdsbCallback | null = null,
@@ -111,6 +113,7 @@ export async function startRxStream(
 		initializeWorkers(backend, opts, {
 			rtl433Callback,
 			rdsCallback,
+			rdsStatusCallback,
 			dsdStatusCallback,
 			adsbCallback,
 			aisCallback,
@@ -268,6 +271,7 @@ function initializeWorkers(
 	callbacks: {
 		rtl433Callback: Rtl433Callback | null;
 		rdsCallback: RdsCallback | null;
+		rdsStatusCallback: RdsStatusCallback | null;
 		dsdStatusCallback: DsdCallback | null;
 		adsbCallback: AdsbCallback | null;
 		aisCallback: AisCallback | null;
@@ -281,6 +285,7 @@ function initializeWorkers(
 		opts.centerFreq,
 		callbacks.rtl433Callback,
 		callbacks.rdsCallback,
+		callbacks.rdsStatusCallback,
 		callbacks.dsdStatusCallback,
 		opts.sampleRate,
 		callbacks.adsbCallback,

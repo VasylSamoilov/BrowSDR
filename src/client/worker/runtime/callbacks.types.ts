@@ -5,6 +5,7 @@ import type { AcarsMessage } from '@/worker/decoders/acars/types';
 import type { AdsbMessage } from '@/worker/decoders/adsb/types';
 import type { DSDStatus } from '@/worker/decoders/dsd/types';
 import type { Rtl433Message, POCSAGMessage, POCSAGStatus, RDSMessage, GSCMessage, GSCStatus, FlexMessage, FlexStatus } from '@/worker/decoders/types';
+import type { RdsStatus } from '@/worker/decoders/rds';
 import type { PerfReport } from './types';
 
 export type SamplesCallback = (samples: Float32Array) => void;
@@ -28,6 +29,7 @@ export interface PagerCallbacks {
 	flexStatus: FlexStatusCallback | null;
 }
 export type RdsCallback = DecoderCallback<RDSMessage>;
+export type RdsStatusCallback = (index: number, freq: number, status: RdsStatus) => void;
 export type BleCallback = DecoderCallback<BleMessage>;
 export type AisCallback = DecoderCallback<AisMessage>;
 export type RadiosondeCallback = DecoderCallback<RadiosondeMessage>;

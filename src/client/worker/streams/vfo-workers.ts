@@ -1,5 +1,6 @@
 import type {
 	RdsCallback,
+	RdsStatusCallback,
 	Rtl433Callback,
 	DsdCallback,
 	AdsbCallback,
@@ -18,6 +19,7 @@ export function initializeVfoWorkers(
 	centerFreq: number,
 	rtl433Callback: Rtl433Callback | null,
 	rdsCallback: RdsCallback | null,
+	rdsStatusCallback: RdsStatusCallback | null,
 	dsdStatusCallback: DsdCallback | null,
 	sampleRate: number,
 	adsbCallback: AdsbCallback | null = null,
@@ -94,6 +96,7 @@ export function initializeVfoWorkers(
 				e.data,
 				rtl433Callback,
 				rdsCallback,
+				rdsStatusCallback,
 				dsdStatusCallback,
 				adsbCallback,
 				aisCallback,
@@ -125,6 +128,7 @@ export function routeLocalWorkerMessage(
 	msg: DspOutput,
 	rtl433Callback: Rtl433Callback | null,
 	rdsCallback: RdsCallback | null,
+	rdsStatusCallback: RdsStatusCallback | null,
 	dsdStatusCallback: DsdCallback | null,
 	adsbCallback: AdsbCallback | null = null,
 	aisCallback: AisCallback | null = null,
@@ -150,6 +154,11 @@ export function routeLocalWorkerMessage(
 		// Forward decoded RDS using the worker's current VFO index.
 		const params = backend.vfoParams![currentIndex];
 		if (rdsCallback && params) rdsCallback(currentIndex, params.freq, msg.msg);
+	} else if (msg.type === 'rds_status') {
+		const currentIndex = backend.dspWorkers!.indexOf(worker);
+		if (currentIndex === -1) return;
+		const params = backend.vfoParams![currentIndex];
+		if (rdsStatusCallback && params) rdsStatusCallback(currentIndex, params.freq, msg.status);
 	} else if (msg.type === 'dsd_status') {
 		const currentIndex = backend.dspWorkers!.indexOf(worker);
 		if (currentIndex === -1) return;

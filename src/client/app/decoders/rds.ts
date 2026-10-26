@@ -1,5 +1,6 @@
 import type { RDSMessage } from '@/worker/decoders/types';
 import type { AppInstance } from '@/app/core/receiver.types';
+import type { RdsStatus } from '@/worker/decoders/rds';
 
 const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false, ta: false, freq: '',
 	ptyn: '', ct: '', ctUtcOffset: 0 as number | null, ecc: -1, countryName: '', lic: -1, languageName: '',
@@ -157,6 +158,9 @@ export const rdsMethods = {
 	clearRds(this: AppInstance) {
 		this.rds.log = [];
 		this.rds.stations = {};
+	},
+	_onRdsStatus(this: AppInstance, vfoIndex: number, _freqMhz: number, status: RdsStatus) {
+		this.rdsStatus[vfoIndex] = status;
 	},
 	exportRds(this: AppInstance) {
 		const lines = this.rds.log.map((e) => `[${e.time}] ${e.freq}  ${e.field}: ${e.value}`);

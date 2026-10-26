@@ -39,6 +39,37 @@ const SYNDROME_C  = calcSyndrome(OFFSET_C);
 const SYNDROME_CP = calcSyndrome(OFFSET_CP);
 const SYNDROME_D  = calcSyndrome(OFFSET_D);
 
+// ── BCH 1-bit error correction table ────────────────────────────
+// For each offset, maps syndrome -> bit position to flip (0-25, or -1 = no 1-bit correction).
+// Built once at module load. Handles the 26-bit block (16-bit data + 10-bit checkword).
+function buildFecTable(offsetWord: number): Map<number, number> {
+	const table = new Map<number, number>();
+	for (let bit = 0; bit < 26; bit++) {
+		// Flip one bit in a valid block (data=0, checkword=offset) and compute syndrome
+		const block = (0 << 10) | offsetWord; // valid block with data=0
+		const flipped = (block ^ (1 << (25 - bit))) & 0x3ffffff;
+		const syn = calcSyndrome(flipped);
+		if (syn !== 0) table.set(syn, bit);
+	}
+	return table;
+}
+const FEC_A  = buildFecTable(OFFSET_A);
+const FEC_B  = buildFecTable(OFFSET_B);
+const FEC_C  = buildFecTable(OFFSET_C);
+const FEC_CP = buildFecTable(OFFSET_CP);
+const FEC_D  = buildFecTable(OFFSET_D);
+const FEC_TABLES = [FEC_A, FEC_B, FEC_C, FEC_D];
+
+// ── RDS decoder status ───────────────────────────────────────────
+export interface RdsStatus {
+	synced: boolean;
+	ber: number;         // bit error rate 0.0-1.0 (rolling window)
+	goodBlocks: number;  // clean + corrected blocks in current group
+	correctedBlocks: number; // BCH-corrected blocks this session (rolling)
+	totalBlocks: number;     // total blocks processed (rolling)
+	pilotLevel: number;  // 19 kHz pilot RMS power (0-1 approx)
+}
+
 function calcSyndrome(offset: number): number {
 	let reg = 0;
 	for (let i = 25; i >= 0; i--) {
@@ -341,6 +372,17 @@ export class RDSDecoder {
 	private blockCorrected: boolean[] = [false, false, false, false]; // true = passed via BCH correction
 	private blockErrors = 0;
 
+	// BER tracking -- rolling window over last 100 blocks
+	private readonly BER_WINDOW = 100;
+	private berHistory: Uint8Array = new Uint8Array(100).fill(1); // 1=bad, 0=good/corrected
+	private berHead = 0;
+	private berSum = 100;  // count of bad blocks in window (starts fully bad)
+	private berCorrectedBlocks = 0; // session corrected block count
+	private berTotalBlocks = 0;     // session total block count
+
+	// Pilot power tracking (19 kHz, proxy for RDS signal quality)
+	private pilotPower = 0;
+
 	// ── Decoded RDS data ──────────────────────────────────────────
 	private pi = 0;
 	private pty = -1;
@@ -433,6 +475,8 @@ export class RDSDecoder {
 			this.pilotMixI += this.pilotMixAlpha * (pilotBpf * pllCos - this.pilotMixI);
 			this.pilotMixQ += this.pilotMixAlpha * (pilotBpf * pllSin - this.pilotMixQ);
 			const pp = this.pilotMixI * this.pilotMixI + this.pilotMixQ * this.pilotMixQ;
+			// Track pilot power (slow IIR for status reporting)
+			this.pilotPower += 0.0001 * (pp - this.pilotPower);
 			if (pp > 1e-12) {
 				const corr = ((this.pilotMixI * this.pilotMixQ) / pp) * this.pilotAlpha;
 				this.phasorRe += this.phasorIm * corr;
@@ -534,23 +578,48 @@ export class RDSDecoder {
 		const expectedSyn = [SYNDROME_A, SYNDROME_B, SYNDROME_C, SYNDROME_D][this.blockIndex];
 		const isValid = syn === expectedSyn || (this.blockIndex === 2 && syn === SYNDROME_CP);
 
+		this.berTotalBlocks++;
+
 		if (isValid) {
-			// Syndrome matched exactly = clean; matched after BCH correction = corrected.
-			// We detect this by checking if the raw block needed any correction:
-			// a clean block's syndrome equals the expected syndrome without any bit flips.
-			// Since we don't run BCH correction here (just syndrome check), blocks that
-			// pass syndrome are clean (0 errors); the CRC is not error-correcting in this
-			// decoder — it's error-detecting only. So any passing block is clean.
 			this.blocks[this.blockIndex] = (this.shiftReg >> 10) & 0xffff;
 			this.blockValid[this.blockIndex] = true;
-			this.blockCorrected[this.blockIndex] = false; // syndrome matched exactly = clean
+			this.blockCorrected[this.blockIndex] = false; // clean
 			this.goodBlocks++;
 			this.blockErrors = 0;
+			// BER: good block
+			this.berSum -= this.berHistory[this.berHead];
+			this.berHistory[this.berHead] = 0;
+			this.berHead = (this.berHead + 1) % this.BER_WINDOW;
 		} else {
-			this.blockValid[this.blockIndex] = false;
-			if (++this.blockErrors >= 8) {
-				this.synced = false; this.goodBlocks = 0; this.blockErrors = 0;
-				return;
+			// Attempt BCH 1-bit correction
+			const fecTable = this.blockIndex === 2 && syn !== expectedSyn
+				? (FEC_TABLES[this.blockIndex].get(syn) !== undefined ? FEC_TABLES[this.blockIndex] : FEC_CP)
+				: FEC_TABLES[this.blockIndex];
+			const errBit = fecTable.get(syn);
+			if (errBit !== undefined) {
+				// Correctable 1-bit error
+				const corrected = (this.shiftReg ^ (1 << (25 - errBit))) & 0x3ffffff;
+				this.blocks[this.blockIndex] = (corrected >> 10) & 0xffff;
+				this.blockValid[this.blockIndex] = true;
+				this.blockCorrected[this.blockIndex] = true;
+				this.goodBlocks++;
+				this.blockErrors = 0;
+				this.berCorrectedBlocks++;
+				// BER: corrected block counts as partial error
+				this.berSum -= this.berHistory[this.berHead];
+				this.berHistory[this.berHead] = 0; // still counts as received
+				this.berHead = (this.berHead + 1) % this.BER_WINDOW;
+			} else {
+				this.blockValid[this.blockIndex] = false;
+				// BER: bad block
+				this.berSum -= this.berHistory[this.berHead];
+				this.berHistory[this.berHead] = 1;
+				this.berHead = (this.berHead + 1) % this.BER_WINDOW;
+				this.berSum++;
+				if (++this.blockErrors >= 8) {
+					this.synced = false; this.goodBlocks = 0; this.blockErrors = 0;
+					return;
+				}
 			}
 		}
 
@@ -1139,7 +1208,22 @@ export class RDSDecoder {
 		this.clockPowerI = 0; this.clockPowerQ = 0; this.clockUsesQ = false;
 		this.symbolIndex = 0; this.pairEnergy.fill(0); this.pairParity = -1;
 		this.prevHalfI = 0; this.prevHalfQ = 0; this.prevSymI = 0; this.prevSymQ = 0;
+		// Reset BER and pilot but keep them across reset (station re-tune)
+		this.berHistory.fill(1); this.berHead = 0; this.berSum = this.BER_WINDOW;
+		this.berCorrectedBlocks = 0; this.berTotalBlocks = 0;
+		this.pilotPower = 0;
 		for (const bq of this.bqI) bq.reset();
 		for (const bq of this.bqQ) bq.reset();
+	}
+
+	getStatus(): RdsStatus {
+		return {
+			synced: this.synced,
+			ber: this.berTotalBlocks === 0 ? 1 : this.berSum / this.BER_WINDOW,
+			goodBlocks: this.goodBlocks,
+			correctedBlocks: this.berCorrectedBlocks,
+			totalBlocks: this.berTotalBlocks,
+			pilotLevel: Math.sqrt(this.pilotPower),
+		};
 	}
 }
