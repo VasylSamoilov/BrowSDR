@@ -17,7 +17,10 @@
 				</UiEmptyState>
 				<div v-for="stn in rdsStationList()" :key="stn.vfoIndex" class="rds-station-card" :style="{ borderLeftColor: vfoColor(stn.vfoIndex) }">
 					<div class="rds-station">
-						<span class="rds-ps" v-if="stn.ps">{{ stn.ps }}</span>
+						<span class="rds-ps" v-if="stn.ps"><span
+							v-for="(ch, ci) in stn.ps.split('')" :key="ci"
+							:style="{ color: (stn.psCharStatus[ci] === 1) ? '#ffcc44' : (stn.psCharStatus[ci] === 2) ? '#ff5252' : undefined }"
+						>{{ ch }}</span></span>
 						<span class="rds-ptyn" v-if="stn.ptyn" :title="'Programme type name: ' + stn.ptyn">{{ stn.ptyn }}</span>
 						<span class="rds-freq">{{ stn.freq }}</span>
 					</div>
@@ -32,7 +35,10 @@
 							<span v-if="stn.hasTmc" class="rds-flag rds-tmc">TMC</span>
 						</span>
 					</div>
-					<div class="rds-rt" v-if="stn.rt">{{ stn.rt }}</div>
+					<div class="rds-rt" v-if="stn.rt"><span
+						v-for="(ch, ci) in stn.rt.split('')" :key="ci"
+						:style="{ color: (stn.rtCharStatus[ci] === 1) ? '#ffcc44' : (stn.rtCharStatus[ci] === 2) ? '#ff5252' : undefined }"
+					>{{ ch }}</span></div>
 					<div class="rds-rtplus" v-if="stn.rtPlusItem1 || stn.rtPlusItem2" style="font-size:11px;opacity:0.75;margin-top:2px;">
 						<span v-if="stn.rtPlusItem1">🎵 {{ stn.rtPlusItem1 }}</span>
 						<span v-if="stn.rtPlusItem2"> — {{ stn.rtPlusItem2 }}</span>

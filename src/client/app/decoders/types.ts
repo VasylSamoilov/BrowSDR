@@ -17,6 +17,7 @@ export type RdsStations = Record<
 		af: number[]; hasTmc: boolean;
 		rtPlusItem1: string; rtPlusItem1Tag: number;
 		rtPlusItem2: string; rtPlusItem2Tag: number;
+		psCharStatus: number[]; rtCharStatus: number[];
 	}
 >;
 

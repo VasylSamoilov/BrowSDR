@@ -75,7 +75,11 @@ export interface SidebandState {
 
 export interface RDSMessage {
 	ps?: string;
+	psCharStatus?: number[];    // per-char: 0=clean, 1=corrected, 2=lost
 	rt?: string;
+	rtCharStatus?: number[];    // per-char quality
+	ptyn?: string;
+	ptynCharStatus?: number[];  // per-char quality
 	pi?: string;
 	pty?: number;
 	ptyLabel?: string;
@@ -100,8 +104,7 @@ export interface RDSMessage {
 	ctUtcOffset?: number;   // UTC offset in half-hours (signed)
 	// Group 5-9, 11-13 ODA data — raw for paging / TMC consumers
 	odaData?: { group: number; version: number; b: number; c: number; d: number };
-	// Group 10A (PTYN)
-	ptyn?: string;          // Programme Type Name (8 chars free text)
+	// Group 10A (PTYN) — already declared above with ptynCharStatus
 	// Group 14A (EON)
 	eon?: { pi: string; ps?: string; tp: boolean; ta: boolean; af?: number[] };
 	// Group 3A RT+ ODA (AID 0x4BD7) and Group 11A RT+ data

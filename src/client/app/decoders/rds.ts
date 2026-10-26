@@ -4,6 +4,7 @@ import type { AppInstance } from '@/app/core/receiver.types';
 const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false, ta: false, freq: '',
 	ptyn: '', ct: '', ctUtcOffset: 0 as number | null, ecc: -1, countryName: '', lic: -1, languageName: '',
 	af: [] as number[], hasTmc: false, rtPlusItem1: '', rtPlusItem1Tag: 0, rtPlusItem2: '', rtPlusItem2Tag: 0,
+	psCharStatus: [] as number[], rtCharStatus: [] as number[],
 };
 
 export const rdsMethods = {
@@ -48,11 +49,14 @@ export const rdsMethods = {
 
 		if (msg.pi !== undefined) { stn.pi = msg.pi; stn.freq = freq; }
 		if (msg.ps !== undefined) {
-			stn.ps = msg.ps; stn.freq = freq;
+			stn.ps = msg.ps;
+			stn.psCharStatus = msg.psCharStatus ?? [];
+			stn.freq = freq;
 			this.rds.log.push({ time, field: 'PS', value: msg.ps, freq, vfoIndex });
 		}
 		if (msg.rt !== undefined) {
 			stn.rt = msg.rt;
+			stn.rtCharStatus = msg.rtCharStatus ?? [];
 			this.rds.log.push({ time, field: 'RT', value: msg.rt, freq, vfoIndex });
 		}
 		if (msg.ptyn !== undefined) {

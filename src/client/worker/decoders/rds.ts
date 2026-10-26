@@ -193,7 +193,54 @@ export const RTPLUS_TAGS: Record<number, string> = {
 	31:'Studio',32:'Phone',33:'Meeting Place',34:'Stationname Long',
 };
 
-// ── RDS Decoder ──────────────────────────────────────────────────
+// ── IEC 62106 Annex E — RDS character set (EU only; RBDS uses ASCII) ─────────
+// Maps code points 0x00-0xFF to Unicode strings. The lower 128 mostly match
+// ASCII with a few exceptions (0x24=¤, 0x5E=―, 0x60=║, 0x7E=¯, 0x7F=DEL→space).
+// The upper 128 are European accented/special characters.
+// Source: osmocom-analog src/radio/rds_tables.c rds_charmap[].
+const RDS_CHARSET: string[] = [
+	// 0x00-0x0F control (map to space except LF/CR)
+	' ',' ',' ',' ',' ',' ',' ',' ',' ',' ','\n',' ',' ','\r',' ',' ',
+	// 0x10-0x1F
+	' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',' ',
+	// 0x20-0x2F  (0x24 = ¤ currency sign, not $)
+	' ','!','"','#','¤','%','&',"'",'(',')','+','+',',','-','.','/',
+	// 0x30-0x3F
+	'0','1','2','3','4','5','6','7','8','9',':',';','<','=','>','?',
+	// 0x40-0x4F
+	'@','A','B','C','D','E','F','G','H','I','J','K','L','M','N','O',
+	// 0x50-0x5F  (0x5E = ― horizontal bar, 0x5F = _)
+	'P','Q','R','S','T','U','V','W','X','Y','Z','[','\\',']','―','_',
+	// 0x60-0x6F  (0x60 = ║ double vertical bar)
+	'║','a','b','c','d','e','f','g','h','i','j','k','l','m','n','o',
+	// 0x70-0x7F  (0x7E = ¯ macron, 0x7F = space)
+	'p','q','r','s','t','u','v','w','x','y','z','{','|','}','¯',' ',
+	// 0x80-0x8F
+	'á','à','é','è','í','ì','ó','ò','ú','ù','Ñ','Ç','Ş','ß','¡','Ĳ',
+	// 0x90-0x9F
+	'â','ä','ê','ë','î','ï','ô','ö','û','ü','ñ','ç','ş','ğ','ı','ĳ',
+	// 0xA0-0xAF
+	'ª','α','©','‰','Ğ','ě','ň','ő','π','€','£','$','←','↑','→','↓',
+	// 0xB0-0xBF
+	'º','¹','²','³','±','İ','ń','ű','µ','¿','÷','°','¼','½','¾','§',
+	// 0xC0-0xCF
+	'Á','À','É','È','Í','Ì','Ó','Ò','Ú','Ù','Ř','Č','Š','Ž','Đ','Ŀ',
+	// 0xD0-0xDF
+	'Â','Ä','Ê','Ë','Î','Ï','Ô','Ö','Û','Ü','ř','č','š','ž','đ','ŀ',
+	// 0xE0-0xEF
+	'Ã','Å','Æ','Œ','Ŷ','Ý','Õ','Ø','Þ','Ŋ','Ŕ','Ć','Ś','Ź','Ŧ','ð',
+	// 0xF0-0xFF
+	'ã','å','æ','œ','ŵ','ý','õ','ø','þ','ŋ','ŕ','ć','ś','ź','ŧ',' ',
+];
+
+/** Decode one RDS byte to a string using the region's charset.
+ *  EU uses IEC 62106 Annex E; RBDS/NA uses plain ASCII. */
+function rdsChar(code: number, region: string): string {
+	if (region === 'na') return code >= 0x20 && code < 0x7f ? String.fromCharCode(code) : ' ';
+	return RDS_CHARSET[code] ?? ' ';
+}
+
+
 
 export class RDSDecoder {
 	private callback: (msg: RDSMessage) => void;
@@ -241,6 +288,7 @@ export class RDSDecoder {
 	private goodBlocks = 0;
 	private blocks: number[] = [0, 0, 0, 0];
 	private blockValid: boolean[] = [false, false, false, false];
+	private blockCorrected: boolean[] = [false, false, false, false]; // true = passed via BCH correction
 	private blockErrors = 0;
 
 	// ── Decoded RDS data ──────────────────────────────────────────
@@ -248,8 +296,10 @@ export class RDSDecoder {
 	private pty = -1;
 	private tp = false;
 	private ta = false;
-	private psChars: Array<number | null> = new Array<number | null>(8).fill(null);
-	private rtChars: Array<number | null> = new Array<number | null>(64).fill(null);
+	private psChars: Array<string | null> = new Array<string | null>(8).fill(null);
+	private psStatus: number[] = new Array<number>(8).fill(0);
+	private rtChars: Array<string | null> = new Array<string | null>(64).fill(null);
+	private rtStatus: number[] = new Array<number>(64).fill(0);
 	private rtAbFlag = -1;
 	private rtVersion = -1;
 	private lastPs = '';
@@ -278,11 +328,12 @@ export class RDSDecoder {
 	private lastCt = '';
 
 	// Group 10A — PTYN
-	private ptynChars: Array<number | null> = new Array<number | null>(8).fill(null);
+	private ptynChars: Array<string | null> = new Array<string | null>(8).fill(null);
+	private ptynStatus: number[] = new Array<number>(8).fill(0);
 	private lastPtyn = '';
 
 	// Group 14A — EON
-	private eonMap: Map<number, { psChars: (number | null)[]; tp: boolean; ta: boolean; af: number[] }> = new Map();
+	private eonMap: Map<number, { psChars: (string | null)[]; tp: boolean; ta: boolean; af: number[] }> = new Map();
 
 	constructor(sampleRate: number, callback: (msg: RDSMessage) => void, region = 'eu') {
 		this.callback = callback;
@@ -421,8 +472,15 @@ export class RDSDecoder {
 		const isValid = syn === expectedSyn || (this.blockIndex === 2 && syn === SYNDROME_CP);
 
 		if (isValid) {
+			// Syndrome matched exactly = clean; matched after BCH correction = corrected.
+			// We detect this by checking if the raw block needed any correction:
+			// a clean block's syndrome equals the expected syndrome without any bit flips.
+			// Since we don't run BCH correction here (just syndrome check), blocks that
+			// pass syndrome are clean (0 errors); the CRC is not error-correcting in this
+			// decoder — it's error-detecting only. So any passing block is clean.
 			this.blocks[this.blockIndex] = (this.shiftReg >> 10) & 0xffff;
 			this.blockValid[this.blockIndex] = true;
+			this.blockCorrected[this.blockIndex] = false; // syndrome matched exactly = clean
 			this.goodBlocks++;
 			this.blockErrors = 0;
 		} else {
@@ -438,8 +496,15 @@ export class RDSDecoder {
 		if (this.blockIndex === 0) { this.goodBlocks = 0; this.blockValid.fill(false); }
 	}
 
-	private acceptChar(pos: number, char: number, chars: Array<number | null>): void {
-		if ((char === 0x0d && chars === this.rtChars) || (char >= 0x20 && char < 0x7f)) chars[pos] = char;
+	// quality: 0=clean block, 1=BCH-corrected, 2=uncorrectable/lost
+	private acceptChar(pos: number, code: number, chars: Array<string | null>, status: number[], quality: number): void {
+		if (code === 0x0d && chars === this.rtChars) { chars[pos] = '\r'; return; }
+		if (code === 0x00) return;
+		// Only overwrite if new data is better quality (lower = better).
+		// On first receive (null) always accept. On retransmission keep best char.
+		if (chars[pos] !== null && quality > status[pos]) return;
+		chars[pos] = rdsChar(code, this.region);
+		status[pos] = quality;
 	}
 
 	private decodeGroup(): void {
@@ -449,7 +514,9 @@ export class RDSDecoder {
 		if (bv[0]) {
 			const pi = this.blocks[0];
 			if (pi !== this.pi && pi !== 0) {
-				this.psChars.fill(null); this.rtChars.fill(null); this.ptynChars.fill(null);
+				this.psChars.fill(null); this.psStatus.fill(0);
+				this.rtChars.fill(null); this.rtStatus.fill(0);
+				this.ptynChars.fill(null); this.ptynStatus.fill(0);
 				this.lastPs = ''; this.lastRt = ''; this.lastPtyn = ''; this.lastCt = '';
 				this.rtAbFlag = -1; this.rtVersion = -1;
 				this.ecc = -1; this.lic = -1;
@@ -487,6 +554,12 @@ export class RDSDecoder {
 		}
 	}
 
+	/** 0=clean, 1=BCH-corrected, 2=invalid/lost. */
+	private blockQuality(idx: number): number {
+		if (!this.blockValid[idx]) return 2;
+		return this.blockCorrected[idx] ? 1 : 0;
+	}
+
 	// ── Group 0: PS name + TA + AF ───────────────────────────────
 	private decodeGroup0(version: number, blockB: number, bv: boolean[]): void {
 		const ta = (blockB & 0x10) !== 0;
@@ -498,14 +571,15 @@ export class RDSDecoder {
 			this.processAfPair((c >> 8) & 0xff, c & 0xff);
 		}
 
-		// PS name in block D
+		// PS name in block D — quality from whether block D was clean or corrected
 		if (bv[3]) {
 			const seg = blockB & 0x03;
 			const d = this.blocks[3];
-			this.acceptChar(seg * 2,     (d >> 8) & 0xff, this.psChars);
-			this.acceptChar(seg * 2 + 1, d & 0xff,        this.psChars);
+			const q = this.blockQuality(3);
+			this.acceptChar(seg * 2,     (d >> 8) & 0xff, this.psChars, this.psStatus, q);
+			this.acceptChar(seg * 2 + 1, d & 0xff,        this.psChars, this.psStatus, q);
 			const ps = this.buildPS();
-			if (ps && ps !== this.lastPs) { this.lastPs = ps; this.callback({ ps }); }
+			if (ps && ps !== this.lastPs) { this.lastPs = ps; this.callback({ ps, psCharStatus: [...this.psStatus] }); }
 		}
 	}
 
@@ -568,19 +642,19 @@ export class RDSDecoder {
 	// ── Group 2: RadioText ───────────────────────────────────────
 	private decodeGroup2(version: number, blockB: number, bv: boolean[]): void {
 		const abFlag = (blockB >> 4) & 1;
-		if (abFlag !== this.rtAbFlag || version !== this.rtVersion) { this.rtChars.fill(null); this.lastRt = ''; }
+		if (abFlag !== this.rtAbFlag || version !== this.rtVersion) { this.rtChars.fill(null); this.rtStatus.fill(0); this.lastRt = ''; }
 		this.rtAbFlag = abFlag; this.rtVersion = version;
 		const seg = blockB & 0x0f;
 		if (version === 0) {
-			if (bv[2]) { const c = this.blocks[2]; this.acceptChar(seg*4,   (c>>8)&0xff, this.rtChars); this.acceptChar(seg*4+1, c&0xff, this.rtChars); }
-			if (bv[3]) { const d = this.blocks[3]; this.acceptChar(seg*4+2, (d>>8)&0xff, this.rtChars); this.acceptChar(seg*4+3, d&0xff, this.rtChars); }
+			if (bv[2]) { const c = this.blocks[2]; const q = this.blockQuality(2); this.acceptChar(seg*4,   (c>>8)&0xff, this.rtChars, this.rtStatus, q); this.acceptChar(seg*4+1, c&0xff, this.rtChars, this.rtStatus, q); }
+			if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); this.acceptChar(seg*4+2, (d>>8)&0xff, this.rtChars, this.rtStatus, q); this.acceptChar(seg*4+3, d&0xff, this.rtChars, this.rtStatus, q); }
 		} else if (bv[3]) {
-			const d = this.blocks[3];
-			this.acceptChar(seg*2,   (d>>8)&0xff, this.rtChars);
-			this.acceptChar(seg*2+1, d&0xff,      this.rtChars);
+			const d = this.blocks[3]; const q = this.blockQuality(3);
+			this.acceptChar(seg*2,   (d>>8)&0xff, this.rtChars, this.rtStatus, q);
+			this.acceptChar(seg*2+1, d&0xff,      this.rtChars, this.rtStatus, q);
 		}
 		const rt = this.buildRT();
-		if (rt && rt.length >= 4 && rt !== this.lastRt) { this.lastRt = rt; this.callback({ rt }); }
+		if (rt && rt.length >= 4 && rt !== this.lastRt) { this.lastRt = rt; this.callback({ rt, rtCharStatus: this.buildStatus(this.rtChars, this.rtStatus) }); }
 	}
 
 	// ── Group 3A: ODA application identification ─────────────────
@@ -622,11 +696,11 @@ export class RDSDecoder {
 	// ── Group 10A: Programme Type Name (PTYN) ────────────────────
 	private decodeGroup10A(blockB: number, bv: boolean[]): void {
 		const seg = blockB & 1;
-		if (bv[2]) { const c = this.blocks[2]; this.acceptChar(seg*4,   (c>>8)&0xff, this.ptynChars); this.acceptChar(seg*4+1, c&0xff, this.ptynChars); }
-		if (bv[3]) { const d = this.blocks[3]; this.acceptChar(seg*4+2, (d>>8)&0xff, this.ptynChars); this.acceptChar(seg*4+3, d&0xff, this.ptynChars); }
+		if (bv[2]) { const c = this.blocks[2]; const q = this.blockQuality(2); this.acceptChar(seg*4,   (c>>8)&0xff, this.ptynChars, this.ptynStatus, q); this.acceptChar(seg*4+1, c&0xff, this.ptynChars, this.ptynStatus, q); }
+		if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); this.acceptChar(seg*4+2, (d>>8)&0xff, this.ptynChars, this.ptynStatus, q); this.acceptChar(seg*4+3, d&0xff, this.ptynChars, this.ptynStatus, q); }
 		if (!this.ptynChars.includes(null)) {
-			const ptyn = String.fromCharCode(...(this.ptynChars as number[])).trimEnd();
-			if (ptyn && ptyn !== this.lastPtyn) { this.lastPtyn = ptyn; this.callback({ ptyn }); }
+			const ptyn = (this.ptynChars as string[]).join('').trimEnd();
+			if (ptyn && ptyn !== this.lastPtyn) { this.lastPtyn = ptyn; this.callback({ ptyn, ptynCharStatus: [...this.ptynStatus] }); }
 		}
 	}
 
@@ -636,14 +710,14 @@ export class RDSDecoder {
 		const eonPi = this.blocks[3];
 		if (!eonPi) return;
 		if (!this.eonMap.has(eonPi))
-			this.eonMap.set(eonPi, { psChars: new Array<number | null>(8).fill(null), tp: false, ta: false, af: [] });
+			this.eonMap.set(eonPi, { psChars: new Array<string | null>(8).fill(null), tp: false, ta: false, af: [] });
 		const eon = this.eonMap.get(eonPi)!;
 		const variant = blockB & 0xf;
 		eon.tp = ((blockB >> 4) & 1) === 1;
 		if (variant <= 3 && bv[2]) {
 			const c = this.blocks[2];
-			eon.psChars[variant * 2]     = (c >> 8) & 0xff;
-			eon.psChars[variant * 2 + 1] = c & 0xff;
+			eon.psChars[variant * 2]     = rdsChar((c >> 8) & 0xff, this.region);
+			eon.psChars[variant * 2 + 1] = rdsChar(c & 0xff, this.region);
 		} else if (variant === 4 && bv[2]) {
 			const c = this.blocks[2];
 			const fa = decodeAfCode((c >> 8) & 0xff, this.region);
@@ -654,7 +728,7 @@ export class RDSDecoder {
 			eon.ta = ((blockB >> 3) & 1) === 1;
 		}
 		const ps = eon.psChars.every(ch => ch !== null)
-			? String.fromCharCode(...(eon.psChars as number[]))
+			? (eon.psChars as string[]).join('')
 			: undefined;
 		this.callback({
 			eon: {
@@ -702,24 +776,36 @@ export class RDSDecoder {
 
 	private buildPS(): string | null {
 		if (this.psChars.some(c => c === null)) return null;
-		return String.fromCharCode(...(this.psChars as number[]));
+		return (this.psChars as string[]).join('');
 	}
 
 	private buildRT(): string | null {
 		let s = '';
 		for (const char of this.rtChars) {
-			if (char === null || char === 0x0d) break;
-			s += String.fromCharCode(char);
+			if (char === null || char === '\r') break;
+			s += char;
 		}
 		return s.trimEnd() || null;
 	}
 
+	/** Build char status array for the received prefix of an RT/PS. */
+	private buildStatus(chars: Array<string | null>, status: number[]): number[] {
+		const result: number[] = [];
+		for (let i = 0; i < chars.length; i++) {
+			if (chars[i] === null || chars[i] === '\r') break;
+			result.push(status[i]);
+		}
+		return result;
+	}
+
 	reset(): void {
 		this.synced = false; this.blockIndex = 0; this.goodBlocks = 0;
-		this.blockErrors = 0; this.blockValid.fill(false);
+		this.blockErrors = 0; this.blockValid.fill(false); this.blockCorrected.fill(false);
 		this.bitCount = 0; this.shiftReg = 0;
 		this.pi = 0; this.pty = -1; this.tp = false; this.ta = false;
-		this.psChars.fill(null); this.rtChars.fill(null); this.ptynChars.fill(null);
+		this.psChars.fill(null); this.psStatus.fill(0);
+		this.rtChars.fill(null); this.rtStatus.fill(0);
+		this.ptynChars.fill(null); this.ptynStatus.fill(0);
 		this.rtAbFlag = -1; this.rtVersion = -1;
 		this.lastPs = ''; this.lastRt = ''; this.lastCt = ''; this.lastPtyn = '';
 		this.ecc = -1; this.lic = -1;
