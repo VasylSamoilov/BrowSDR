@@ -126,6 +126,7 @@ export interface RDSMessage {
 	odaAid?: number;        // Open Data Application ID registered on a group
 	odaGroup?: number;      // Group number carrying this ODA (0-15)
 	odaVersion?: number;    // Group version (0=A, 1=B)
+	odaMsg?: number;        // 3A message bits (block C) -- app-specific config (e.g. RT+ template)
 	// Group 4A (CT)
 	ct?: string;            // Clock time formatted "YYYY-MM-DD HH:MM" local
 	ctUtcOffset?: number;   // UTC offset in half-hours (signed)

@@ -370,6 +370,8 @@ export class RDSDecoder {
 
 	// Group 3A — ODA application registration: (groupNum<<1)|version → AID
 	private odaMap: Map<number, number> = new Map();
+	// Group 3A message bits: key → block C value (app-specific config, e.g. RT+ CB/SCB/template)
+	private odaMsg: Map<number, number> = new Map();
 
 	// RT+ (ODA AID 0x4BD7)
 	private rtPlusGroup = -1;
@@ -582,7 +584,7 @@ export class RDSDecoder {
 				this.rtAbFlag = -1; this.rtVersion = -1;
 				this.ecc = -1; this.lic = -1;
 				this.afList = []; this.afCount = 0; this.afLastCount = -1;
-				this.odaMap.clear(); this.eonMap.clear();
+				this.odaMap.clear(); this.eonMap.clear(); this.odaMsg.clear();
 				this.rtPlusGroup = -1; this.rtPlusText1 = ''; this.rtPlusText2 = '';
 				this.pi = pi;
 				const piCc       = (pi >> 12) & 0xf;
@@ -888,12 +890,15 @@ export class RDSDecoder {
 		const odaGroupNum = (blockB >> 1) & 0xf;
 		const odaVersion  =  blockB & 1;
 		const aid = this.blocks[3];
+		// Block C = 16-bit message bits (app-specific config, e.g. RT+ CB/SCB/template)
+		const msg = bv[2] ? this.blocks[2] : 0;
 		const key = (odaGroupNum << 1) | odaVersion;
-		// Only emit when this group's AID assignment changes
-		if (this.odaMap.get(key) === aid) return;
+		// Only emit when this group's AID or message bits change
+		if (this.odaMap.get(key) === aid && this.odaMsg.get(key) === msg) return;
 		this.odaMap.set(key, aid);
+		this.odaMsg.set(key, msg);
 		if (aid === 0x4BD7) this.rtPlusGroup = key;
-		this.callback({ odaAid: aid, odaGroup: odaGroupNum, odaVersion });
+		this.callback({ odaAid: aid, odaGroup: odaGroupNum, odaVersion, odaMsg: msg });
 	}
 
 	// ── Group 4A: Clock Time (CT) ────────────────────────────────
@@ -958,10 +963,17 @@ export class RDSDecoder {
 			if (fa !== null && !eon.af.includes(fa)) eon.af.push(fa);
 			if (fb !== null && !eon.af.includes(fb)) eon.af.push(fb);
 		} else if (variant === 13 && bv[2]) {
-			// PTY(ON) in bits [11:8] of block C, TA(ON) in block B bit 3
-			eon.ta = ((blockB >> 3) & 1) === 1;
-			const ptyOn = (this.blocks[2] >> 8) & 0x1f;
-			void ptyOn; // PTY of other network -- stored in eonMap if needed
+			// Variant 13: PTY(ON) in block C bits [15:11], TA(ON) in block C bit 0
+			// (NOT block B -- TA is in the information block, per Figure 37)
+			eon.ta = (this.blocks[2] & 1) === 1;
+			const ptyOn = (this.blocks[2] >> 11) & 0x1f;
+			void ptyOn; // PTY of other network -- available for future use
+		} else if (variant === 12 && bv[2]) {
+			// Variant 12: Linkage information (Figure 37)
+			// block C bit 15 = LA, bit 14 = EG, bit 12 = ILS, bits [11:0] = LSN
+			const lc = this.blocks[2];
+			const lsn = lc & 0x0fff;
+			void lsn; // Linkage Set Number -- no user-visible callback needed for now
 		} else if (variant === 14 && bv[2]) {
 			// PIN(ON) -- scheduled broadcast time of other network
 			void this.blocks[2]; // stored, no callback needed
