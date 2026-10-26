@@ -32,6 +32,7 @@ import { dedupVector, makeDedupStore } from './dedup';
 import { makeFlexTimeVote, tickFlexTime, makeNetInfo } from './flextime';
 import { partialMessage } from './reassembly';
 import type { FlexPhaseData, FlexFiw, FlexMessage } from './types';
+import type { Codepage } from '@/worker/decoders/charsets';
 import type { ReasmSlot, FlexNetInfo, GroupEvent, GroupSlot, CapClass, HexHeader, DedupStore, FlexTimeVote } from './frame.types';
 
 const FLEX_WORDS_PER_FRAME = 88;
@@ -183,6 +184,7 @@ function extractAlpha(
 	startWord: number,
 	mw2: number,
 	isInitial: boolean,
+	cp?: Codepage,
 ): { text: string; sigSum: number; rxSig: number; wordsOk: boolean; charStatus: number[] } {
 	let text = '';
 	let sigSum = 0;
@@ -212,7 +214,8 @@ function extractAlpha(
 			const ch = (dw >> shift) & ALPHA_CHAR_MASK;
 			if (ch !== ALPHA_ETX) sigSum = (sigSum + ch) & ALPHA_SIG_MASK;
 			if (ch !== ALPHA_ETX && ch !== 0) {
-				text += String.fromCharCode(ch);
+				// Map the 7-bit code through the selected codepage; null -> raw ASCII.
+				text += (cp ? cp[ch & 0x7f] : null) ?? String.fromCharCode(ch);
 				charStatus.push(chStat);
 			}
 		}
@@ -270,6 +273,7 @@ export function decodePhase(
 	dedup?: DedupStore,
 	timeVote?: FlexTimeVote,
 	frameMono = 0,
+	cp?: Codepage,
 ): FlexMessage[] {
 	const decoded = bchDecodePhase(ph);
 	const { words, status } = combineSubframes(decoded.words, decoded.status, numTransmissions);
@@ -308,7 +312,7 @@ export function decodePhase(
 			continue;
 		}
 		addrIdx += r.advance;
-		const msg = decodeVector(words, status, j, r.capcode, r.isLong, r.capClass, phaseName, fiw, kanji, dedup);
+		const msg = decodeVector(words, status, j, r.capcode, r.isLong, r.capClass, phaseName, fiw, kanji, dedup, cp);
 		if (msg) {
 			msg.capClass = r.capClass;
 			msgs.push(msg);
@@ -417,6 +421,7 @@ function decodeAlpha(
 	base: Omit<FlexMessage, 'kind' | 'text'>,
 	kind: string,
 	kanji: boolean,
+	cp?: Codepage,
 ): FlexMessage {
 	const hdrIdx = isLong ? j + 1 : mw1;
 	const hdr = parseAlphaHeader(words, status, hdrIdx, vecType);
@@ -435,7 +440,7 @@ function decodeAlpha(
 	const endWord = isLong ? mw2 + 1 : mw2;
 
 	const isKanji = kanji && vecType === VEC_ALPHA;
-	const payload = extractAlphaPayload(words, status, startWord, endWord, isInitial, vecType, isKanji);
+	const payload = extractAlphaPayload(words, status, startWord, endWord, isInitial, vecType, isKanji, cp);
 	if (isKanji && kindOut === 'ALPHA') kindOut = 'ALPHA:KNJ';
 	const { text, sigSum, rxSig, wordsOk, charStatus } = payload;
 
@@ -466,12 +471,13 @@ function extractAlphaPayload(
 	isInitial: boolean,
 	vecType: number,
 	isKanji: boolean,
+	cp?: Codepage,
 ): { text: string; sigSum: number; rxSig: number; wordsOk: boolean; charStatus: number[] } {
 	if (isKanji) {
 		const kanji = extractKanji(words, status, startWord, endWord, isInitial);
 		return { text: kanji.text, sigSum: 0, rxSig: 0, wordsOk: kanji.wordsOk, charStatus: [] };
 	}
-	return extractAlpha(words, status, startWord, endWord, isInitial);
+	return extractAlpha(words, status, startWord, endWord, isInitial, cp);
 }
 
 function decodeVector(
@@ -485,6 +491,7 @@ function decodeVector(
 	fiw: FlexFiw,
 	kanji: boolean,
 	dedup?: DedupStore,
+	cp?: Codepage,
 ): FlexMessage | null {
 	if (wordLost(status[j])) return null;
 	const viw = words[j];
@@ -520,7 +527,7 @@ function decodeVector(
 	};
 	const kind = vectorKind(vecType);
 
-	const msg = dispatchVector(dw, ds, j, mw1, mw2, isLong, capClass, vecType, kind, base, kanji);
+	const msg = dispatchVector(dw, ds, j, mw1, mw2, isLong, capClass, vecType, kind, base, kanji, cp);
 	if (msg && dedupTag) msg.dedup = dedupTag;
 	return msg;
 }
@@ -538,12 +545,13 @@ function dispatchVector(
 	kind: string,
 	base: Omit<FlexMessage, 'kind' | 'text'>,
 	kanji: boolean,
+	cp?: Codepage,
 ): FlexMessage | null {
 	if (vecType === VEC_SHORT_MESSAGE) {
 		return parseShortMessage(words, status, j, isLong, capClass, base);
 	}
 	if (vecType === VEC_ALPHA || vecType === VEC_SECURE) {
-		return decodeAlpha(words, status, j, mw1, mw2, isLong, vecType, base, kind, kanji);
+		return decodeAlpha(words, status, j, mw1, mw2, isLong, vecType, base, kind, kanji, cp);
 	}
 	if (vecType === VEC_NUMERIC || vecType === VEC_SPECIAL_NUM || vecType === VEC_NUMBERED_NUM) {
 		return decodeNumericVector(words, status, j, mw1, mw2, isLong, vecType, base, kind);
@@ -647,6 +655,9 @@ export class FlexFrameDecoder {
 	// When the selected FLEX charset is Kanji, alpha payloads are decoded as
 	// 16-bit Shift-JIS (set by the caller from the charset key, not auto-detected).
 	private readonly kanji: boolean;
+	// Selected 7-bit glyph codepage for plain alpha (vendor charset). Undefined
+	// = raw ASCII. Not used on the Kanji path (that is a 16-bit handler charset).
+	private readonly cp?: Codepage;
 	// Smoothed bit-error rate (errored bits over received codeword bits:
 	// BCH-corrected Hamming distance, or a full codeword if uncorrectable),
 	// updated each decoded frame; null until the first frame.
@@ -663,8 +674,9 @@ export class FlexFrameDecoder {
 	// same capcode); drained into the frame output after the decode loop.
 	private pendingAbandoned: FlexMessage[] = [];
 
-	constructor(kanji = false) {
+	constructor(kanji = false, cp?: Codepage) {
 		this.kanji = kanji;
+		this.cp = cp;
 	}
 
 	/** Last smoothed bit-error rate (0..1), or null before the first frame. */
@@ -700,7 +712,7 @@ export class FlexFrameDecoder {
 		const tally = { errBits: 0, totalBits: 0 };
 		const groupEvents: GroupEvent[] = [];
 		for (const pi of activePhases) {
-			for (const msg of decodePhase(phases[pi], names[pi], fiw, fiw.numTransmissions, this.kanji, tally, this.net, groupEvents, this.dedup[pol], this.timeVote[pol], frameMono)) {
+			for (const msg of decodePhase(phases[pi], names[pi], fiw, fiw.numTransmissions, this.kanji, tally, this.net, groupEvents, this.dedup[pol], this.timeVote[pol], frameMono, this.cp)) {
 				const assembled = this.reassemble(msg, polarity, frameAbs);
 				if (assembled) {
 					assembled.inverted = (polarity & 1) === 1;

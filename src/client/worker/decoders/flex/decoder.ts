@@ -15,7 +15,7 @@ import { formatFlexTime } from './flextime';
 import type { FlexMode, FlexFiw, FlexPhaseData, FlexMessage } from './types';
 import type { FlexStatus, FlexRxStage } from './types';
 import type { CharsetKey } from '@/worker/decoders/charsets';
-import { FLEX_DEFAULT_CHARSET, flexCharsetHandler } from '@/worker/decoders/charsets';
+import { FLEX_DEFAULT_CHARSET, flexCharsetHandler, flexCodepage } from '@/worker/decoders/charsets';
 
 export class FlexDecoder {
 	private readonly frontend: FlexFrontend;
@@ -29,9 +29,10 @@ export class FlexDecoder {
 	constructor(audioRate: number, onMessage: (msg: FlexMessage) => void, charset: CharsetKey = FLEX_DEFAULT_CHARSET) {
 		this.onMessage = onMessage;
 		this.charset = charset;
-		// The selected charset attaches a decode handler, not a glyph table:
-		// the 'kanji' handler switches alpha extraction to 16-bit Shift-JIS.
-		this.frames = new FlexFrameDecoder(flexCharsetHandler(charset) === 'kanji');
+		// The selected charset is either a handler (Kanji -> 16-bit Shift-JIS
+		// extraction, no glyph table) or a 7-bit glyph codepage applied to plain
+		// alpha. Resolve both and hand them to the frame decoder.
+		this.frames = FlexDecoder.buildFrames(charset);
 		this.frontend = new FlexFrontend(audioRate, {
 			onMode: (mode: FlexMode, polarity: number) => {
 				this.mode = mode;
@@ -79,7 +80,14 @@ export class FlexDecoder {
 	 * the decoding logic, so the frame decoder is rebuilt for the new mode. */
 	setCharset(charset: CharsetKey): void {
 		this.charset = charset;
-		this.frames = new FlexFrameDecoder(flexCharsetHandler(charset) === 'kanji');
+		this.frames = FlexDecoder.buildFrames(charset);
+	}
+
+	/** Build a frame decoder for a charset: Kanji -> handler flag (no glyph
+	 * table); any other FLEX charset -> its resolved per-protocol codepage. */
+	private static buildFrames(charset: CharsetKey): FlexFrameDecoder {
+		const kanji = flexCharsetHandler(charset) === 'kanji';
+		return new FlexFrameDecoder(kanji, kanji ? undefined : flexCodepage(charset));
 	}
 
 	reset(): void {

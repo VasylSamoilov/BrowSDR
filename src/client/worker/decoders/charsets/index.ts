@@ -7,24 +7,23 @@
 import type { CharsetEntry, CharsetKey, CharsetHandler, CharsetRegistry, CharsetTables, Codepage, PagerProtocol } from './types';
 import { charsetKeyEquals } from './types';
 import { POCSAG_CHARSETS, POCSAG_TABLES } from './pocsag';
+import { FLEX_CHARSETS, FLEX_TABLES } from './flex';
 
 export const CHARSETS: CharsetRegistry = {
 	pocsag: POCSAG_CHARSETS,
 	gsc: [], // GSC is default-only (single Table VII alphabet); no codepages.
-	// FLEX: default 7-bit ASCII, plus a Kanji identity. FLEX carries no on-wire
-	// signal that a payload is 16-bit Shift-JIS, so Kanji is a user-selected
-	// charset that switches alpha decoding (16-bit chars) and rendering --
-	// selectable like any other codepage, not auto-detected.
-	flex: [
-		{ vendor: 'generic', model: 'generic', codepage: 'ascii', codeBits: 7, label: 'Generic ASCII', tableId: 'generic-ascii' },
-		{ vendor: 'generic', model: 'generic', codepage: 'kanji', codeBits: 16, label: 'Kanji (Shift-JIS)', tableId: 'generic-ascii', handler: 'kanji' },
-	],
+	// FLEX: generic ASCII + the Motorola Linguist national/script codepages
+	// (ported from osmocom-analog), plus a Kanji identity. The Kanji entry is
+	// not a glyph table: FLEX carries no on-wire signal that a payload is 16-bit
+	// Shift-JIS, so Kanji is a user-selected charset that switches alpha
+	// decoding (16-bit chars) and rendering -- selectable like any codepage.
+	flex: FLEX_CHARSETS,
 };
 
 const TABLES: Record<PagerProtocol, CharsetTables> = {
 	pocsag: POCSAG_TABLES,
 	gsc: {},
-	flex: {},
+	flex: FLEX_TABLES,
 };
 
 /** Per-protocol default charset key. Each protocol's 'generic/generic' identity. */
@@ -75,6 +74,13 @@ export function pocsagCodepage(key: CharsetKey): Codepage {
 /** The default FLEX charset key (generic ASCII). */
 export const FLEX_DEFAULT_CHARSET: CharsetKey = DEFAULT_CHARSET.flex;
 
+/** Resolve a FLEX charset key to its glyph table (per-protocol; never POCSAG).
+ * For a handler charset (e.g. Kanji) the table is unused -- the decoder reads
+ * flexCharsetHandler and switches extraction instead. */
+export function flexCodepage(key: CharsetKey): Codepage {
+	return resolveCodepage('flex', key);
+}
+
 /**
  * The decode handler attached to a FLEX charset key, or undefined for a plain
  * codepage. Selecting a handler charset (e.g. Kanji) does NOT go through the
@@ -86,5 +92,5 @@ export function flexCharsetHandler(key: CharsetKey): CharsetHandler | undefined 
 	return entry?.handler;
 }
 
-export type { CharsetEntry, CharsetKey, CharsetHandler, PagerProtocol };
+export type { CharsetEntry, CharsetKey, CharsetHandler, PagerProtocol, Codepage };
 export { POCSAG_CHARSETS, POCSAG_TABLES } from './pocsag';

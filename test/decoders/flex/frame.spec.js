@@ -208,6 +208,28 @@ describe('FLEX frame decode', () => {
 		expect(ascii[0].text).not.toBe(kanji[0].text);
 	});
 
+	it('applies a selected codepage to plain alpha, falling back to ASCII when unmapped', () => {
+		// Alpha message "ABC" (0x41,0x42,0x43). Decode once as ASCII, once with a
+		// codepage that remaps only 0x41 -> a glyph; 0x42/0x43 fall back to ASCII.
+		const ph = makePhase();
+		put(ph, 0, biw(1, 2));
+		put(ph, 1, 123 + 32768);
+		put(ph, 2, vector(0x5, 3, 2)); // ALPHA, body 3..4 (hdr word + 1 data word)
+		put(ph, 3, alphaHdr('K')); // complete, unfragmented
+		put(ph, 4, alphaWord(0x41, 0x41, 0x41));
+		const ascii = decodePhase(ph, 'A', FIW);
+		// Codepage: index = 7-bit code; only 0x41 ('A') overridden to Cyrillic Ya.
+		const cp = new Array(128).fill(null);
+		for (let c = 0x20; c <= 0x7e; c++) cp[c] = String.fromCharCode(c);
+		cp[0x41] = '\u042f';
+		const mapped = decodePhase(ph, 'A', FIW, 1, false, undefined, undefined, undefined, undefined, undefined, 0, cp);
+		// Same bytes, but every 'A' in the ASCII decode becomes Cyrillic Ya, and
+		// all other chars (ASCII fallback) are unchanged.
+		expect(ascii[0].text.includes('A')).toBe(true);
+		expect(mapped[0].text).toBe(ascii[0].text.replace(/A/g, '\u042f'));
+		expect(mapped[0].text).not.toBe(ascii[0].text);
+	});
+
 	it('decodes a secure message: alpha sub-type as text, binary sub-type as hex', () => {
 		// Secure alpha (t1t0=00): 7-bit text.
 		const sa = makePhase();
