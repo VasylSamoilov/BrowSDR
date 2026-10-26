@@ -23,6 +23,9 @@ export interface PagerLogEntry {
 	text: string;
 	/** Per-character decode status parallel to text: 0 ok, 1 corrected, 2 bad. */
 	charStatus?: number[];
+	/** Signal polarity: true when decoded at inverted polarity. Shared across
+	 * POCSAG, GSC, and FLEX; rendered as an INV/NORM row tag. */
+	inverted?: boolean;
 
 	// -- POCSAG-specific --
 	/** Function sub-address 0-3 (shown as A-D). POCSAG-specific; optional. */
@@ -49,8 +52,6 @@ export interface PagerLogEntry {
 	flexCycle?: number;
 	/** FLEX: frame number (0-127) this page was received in. */
 	flexFrame?: number;
-	/** FLEX: true when the frame was received with inverted polarity. */
-	inverted?: boolean;
 	/** FLEX fragment flag: 'K' complete, 'F' continued, 'C' final. */
 	frag?: string;
 	/** FLEX: true once the message is whole (complete or fully reassembled). */

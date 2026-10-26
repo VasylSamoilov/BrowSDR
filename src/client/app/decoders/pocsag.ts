@@ -49,6 +49,7 @@ export const pocsagMethods = {
 			text: msg.text,
 			charStatus: msg.charStatus ?? [],
 			baud: msg.baud,
+			inverted: msg.inverted,
 			detectDebug: msg.detectDebug,
 			alt: msg.alt,
 		});

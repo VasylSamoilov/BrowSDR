@@ -23,6 +23,8 @@ export interface GSCMessage {
 	uncorrectableCount: number;
 	/** Preamble index 0-9. */
 	preambleIndex: number;
+	/** True when this message was decoded at inverted signal polarity. */
+	inverted?: boolean;
 	/** For voice pages: 'start' when the voice alert batch is decoded, 'stop'
 	 * when the transmission ends. Undefined for data/tone pages. */
 	voiceEvent?: 'start' | 'stop';
@@ -34,10 +36,12 @@ export interface GSCMessage {
 /** The set of reasons a GSC voice page can end. */
 export type GSCVoiceEndReason = 'activation' | 'preamble' | 'silence' | 'timeout';
 
-/** Live link status for a GSC VFO (sync / bit-error rate). */
+/** Live link status for a GSC VFO (sync / polarity / bit-error rate). */
 export interface GSCStatus {
 	synced: boolean;
 	baud: number | null;
+	/** True when the locked signal is inverted polarity. */
+	inverted: boolean;
 	ber: number | null;
 	codewords: number;
 }

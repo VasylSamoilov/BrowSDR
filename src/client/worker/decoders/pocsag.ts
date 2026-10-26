@@ -805,6 +805,7 @@ export class _POCSAGSingleBaud {
 				text: clean,
 				charStatus: outStatus,
 				baud: this.baudRate,
+				inverted: this.inverted,
 				detectDebug: detectScores || undefined,
 				alt: altGuess ? { type: altGuess.type, text: _cleanAltText(altGuess.text) } : undefined,
 			});

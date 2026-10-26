@@ -30,7 +30,7 @@
 				<!-- FLEX per-message flags: phase (func-tag style), polarity (NORM/INV like POCSAG/GSC) -->
 				<span v-if="entry.protocol === 'flex' && entry.phase" class="pager-flex-phase" title="FLEX phase (A-D)">PH:{{ entry.phase }}</span>
 				<span v-if="entry.protocol === 'flex' && entry.flexCycle != null && entry.flexCycle >= 0" class="pager-flex-phase" title="FLEX cycle / frame">C{{ String(entry.flexCycle).padStart(2, '0') }}/F{{ String(entry.flexFrame).padStart(3, '0') }}</span>
-				<span v-if="entry.protocol === 'flex' && entry.flexBaud" class="pager-flex-pol" :class="entry.inverted ? 'pager-flex-pol-inv' : 'pager-flex-pol-norm'" :title="entry.inverted ? 'Inverted polarity' : 'Normal polarity'">{{ entry.inverted ? 'INV' : 'NORM' }}</span>
+				<span v-if="entry.inverted != null" class="pager-pol" :class="entry.inverted ? 'pager-pol-inv' : 'pager-pol-norm'" :title="entry.inverted ? 'Inverted polarity' : 'Normal polarity'">{{ entry.inverted ? 'I' : 'N' }}</span>
 				<span v-if="entry.protocol === 'flex' && entry.reasmKey && !entry.complete" title="Incomplete message, reassembling (updates in place)" style="color:#ffb74d;flex-shrink:0;font-size:9px;font-weight:700;">&#8943; PARTIAL<template v-if="entry.fragCount"> ({{ entry.fragCount }})</template></span>
 				<span v-else-if="entry.protocol === 'flex' && entry.reasmKey && entry.complete" title="Reassembled from fragments" style="color:#4fc3f7;flex-shrink:0;font-size:9px;font-weight:700;">REASM<template v-if="entry.fragCount"> ({{ entry.fragCount }})</template></span>
 				<span v-if="entry.protocol === 'flex' && entry.complete && entry.incomplete" title="Reassembled but missing fragment(s) -- partial content" style="color:#ff8a65;flex-shrink:0;font-size:9px;font-weight:700;">INCOMPLETE</span>

@@ -174,8 +174,8 @@ export class GSCDecoder {
 		this.slicer.process(samples);
 	}
 
-	getStatus(): { synced: boolean; baud: number | null; ber: number | null; codewords: number } {
-		return { synced: this.synced, baud: this.synced ? BAUD : null, ber: this.ber.ber, codewords: this.ber.count };
+	getStatus(): { synced: boolean; baud: number | null; inverted: boolean; ber: number | null; codewords: number } {
+		return { synced: this.synced, baud: this.synced ? BAUD : null, inverted: this.inverted, ber: this.ber.ber, codewords: this.ber.count };
 	}
 
 	/** Resolve a 46-bit dup window into a 23-bit Golay codeword (LSB-first,
@@ -353,6 +353,7 @@ export class GSCDecoder {
 	private _decodeBuffer(buf: number[], force = true): 'voice' | 'decoded' | 'none' {
 		const msg = decodeBatch(buf, this.preambleIndex, force, this.ber);
 		if (!msg) return 'none';
+		msg.inverted = this.inverted;
 		if (msg.voiceEvent === 'start') {
 			this.voiceActive = true;
 			this.voiceAddress = msg.address;
@@ -393,6 +394,7 @@ export class GSCDecoder {
 				preambleIndex: -1,
 				voiceEvent: 'stop',
 				voiceEndReason: reason,
+				inverted: this.inverted,
 			});
 		}
 		this._resetIdle();

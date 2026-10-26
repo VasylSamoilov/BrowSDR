@@ -1,4 +1,5 @@
-/* ────── POCSAG Decoder Panel ────── */
+/* Pager + shared message-center panel styles (POCSAG / GSC / FLEX and the
+ * message-center chrome reused by other decoder panels). */
 .decoder-vfo-select {
 	width: 170px;
 	font-size: 11px;
@@ -276,16 +277,28 @@
 }
 
 /* FLEX polarity, matching the POCSAG/GSC status NORM/INV convention. */
-.pager-flex-pol {
+/* Polarity badge: a single letter (N normal / I inverted) in a small rounded
+ * chip, hover for the full label. Shared by POCSAG, GSC, and FLEX rows. */
+.pager-pol {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 13px;
+	height: 13px;
+	border-radius: 3px;
 	font-size: 9px;
 	font-weight: 700;
+	line-height: 1;
 	flex-shrink: 0;
+	cursor: help;
 }
-.pager-flex-pol-norm {
-	color: #88aacc;
+.pager-pol-norm {
+	color: #0d1a2a;
+	background: #88aacc;
 }
-.pager-flex-pol-inv {
-	color: #ffcc44;
+.pager-pol-inv {
+	color: #2a1f00;
+	background: #ffcc44;
 }
 
 .msgcenter-text {

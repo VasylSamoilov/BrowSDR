@@ -17,6 +17,8 @@ export interface POCSAGMessage {
 	 */
 	charStatus: number[];
 	baud: number;
+	/** True when this message was decoded at inverted signal polarity. */
+	inverted?: boolean;
 	/** Debug: content-detection scores (alpha vs numeric), when DEBUG build. */
 	detectDebug?: string;
 	/**

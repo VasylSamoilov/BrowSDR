@@ -101,7 +101,7 @@
 				<span style="font-weight:700;color:#fff;">{{ receiver.pocsagStatus[i]?.synced ? 'SYNC' : 'SEARCHING' }}</span>
 			</span>
 			<span v-if="receiver.pocsagStatus[i]?.baud" style="color:#aaa;">{{ receiver.pocsagStatus[i].baud }} Bd</span>
-			<span :style="{ color: receiver.pocsagStatus[i]?.inverted ? '#ffcc44' : '#88aacc' }">{{ receiver.pocsagStatus[i]?.inverted ? 'INV' : 'NORM' }}</span>
+			<span v-if="receiver.pocsagStatus[i]?.synced" :style="{ color: receiver.pocsagStatus[i]?.inverted ? '#ffcc44' : '#88aacc' }" title="Signal polarity">{{ receiver.pocsagStatus[i]?.inverted ? 'INV' : 'NORM' }}</span>
 			<span v-if="receiver.pocsagStatus[i]?.ber != null"
 				:style="{ color: receiver.pocsagStatus[i].ber < 0.01 ? '#44cc44' : (receiver.pocsagStatus[i].ber < 0.05 ? '#ffcc44' : '#ff6644') }">
 				BER {{ (receiver.pocsagStatus[i].ber * 100).toFixed(1) }}%
@@ -125,6 +125,7 @@
 				<span style="font-weight:700;color:#fff;">GSC {{ receiver.gscStatus[i]?.synced ? 'SYNC' : 'SEARCHING' }}</span>
 			</span>
 			<span v-if="receiver.gscStatus[i]?.baud" style="color:#aaa;">{{ receiver.gscStatus[i].baud }} Bd</span>
+			<span v-if="receiver.gscStatus[i]?.synced" :style="{ color: receiver.gscStatus[i]?.inverted ? '#ffcc44' : '#88aacc' }" title="Signal polarity">{{ receiver.gscStatus[i]?.inverted ? 'INV' : 'NORM' }}</span>
 			<span v-if="receiver.gscStatus[i]?.ber != null"
 				:style="{ color: receiver.gscStatus[i].ber < 0.01 ? '#44cc44' : (receiver.gscStatus[i].ber < 0.05 ? '#ffcc44' : '#ff6644') }">
 				BER {{ (receiver.gscStatus[i].ber * 100).toFixed(1) }}%
@@ -159,7 +160,7 @@
 				<span style="font-weight:700;color:#fff;">FLEX {{ receiver.flexStatus[i]?.locked ? 'LOCK' : 'HUNT' }}</span>
 			</span>
 			<span v-if="receiver.flexStatus[i]?.locked" style="color:#b39ddb;text-transform:uppercase;">{{ receiver.flexStatus[i].stage }}</span>
-			<span v-if="receiver.flexStatus[i]?.inverted" style="color:#ffcc44;">INV</span>
+			<span v-if="receiver.flexStatus[i]?.locked" :style="{ color: receiver.flexStatus[i]?.inverted ? '#ffcc44' : '#88aacc' }" title="Signal polarity">{{ receiver.flexStatus[i]?.inverted ? 'INV' : 'NORM' }}</span>
 			<span v-if="receiver.flexStatus[i]?.mode" style="color:#aaa;">{{ receiver.flexStatus[i].mode }}</span>
 			<span v-if="receiver.flexStatus[i]?.cycle != null" style="color:#88aacc;">C{{ String(receiver.flexStatus[i].cycle).padStart(2, '0') }} F{{ String(receiver.flexStatus[i].frame).padStart(3, '0') }}</span>
 			<span v-if="receiver.flexStatus[i]?.ber != null"
