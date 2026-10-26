@@ -17,7 +17,11 @@ export interface POCSAGMessage {
 	 */
 	charStatus: number[];
 	baud: number;
-	/** True when this message was decoded at inverted signal polarity. */
+	/** True when this message was decoded at inverted signal polarity. Part of
+	 * the message IDENTITY: the same capcode at normal vs inverted polarity is
+	 * two distinct subscribers (operators run both to double the capcode space),
+	 * so any future dedup/retransmission collapse MUST key on capcode+polarity,
+	 * never capcode alone. */
 	inverted?: boolean;
 	/** Debug: content-detection scores (alpha vs numeric), when DEBUG build. */
 	detectDebug?: string;

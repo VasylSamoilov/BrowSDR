@@ -23,7 +23,11 @@ export interface GSCMessage {
 	uncorrectableCount: number;
 	/** Preamble index 0-9. */
 	preambleIndex: number;
-	/** True when this message was decoded at inverted signal polarity. */
+	/** True when this message was decoded at inverted signal polarity. Part of
+	 * the message IDENTITY: the same address at normal vs inverted polarity is
+	 * two distinct subscribers (operators run both to double the address space),
+	 * so any future dedup/retransmission collapse MUST key on address+polarity,
+	 * never address alone. */
 	inverted?: boolean;
 	/** For voice pages: 'start' when the voice alert batch is decoded, 'stop'
 	 * when the transmission ends. Undefined for data/tone pages. */
