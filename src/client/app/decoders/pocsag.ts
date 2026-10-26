@@ -303,6 +303,7 @@ export const pocsagMethods = {
 			dedup: msg.dedup,
 			flexBaud: msg.baud,
 			flexLevels: msg.levels,
+			flexTime: msg.flexTime,
 		};
 		// Fragmented messages carry a stable reasmKey. Update the existing
 		// (still-incomplete) row in place so the message visibly builds up,

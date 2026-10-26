@@ -54,6 +54,14 @@ export interface FlexFrontendEvents {
 	onLock?: (locked: boolean) => void;
 	/** A valid S1 sync was detected and validated; carries the air mode. */
 	onMode?: (mode: FlexMode, polarity: number) => void;
+	/**
+	 * A clean (error-free) S1 sync was detected whose outer code is NOT a
+	 * functional mode (A1-A4): a Reserved code (A5-A15, including A7 which may
+	 * be ReFLEX) or the Ar Emergency Re-synchronization code. Carries a label
+	 * and the raw 16-bit outer code. Only fired on a zero-bit-error match, so a
+	 * corrupted A1-A4 is never mislogged as reserved/ERS.
+	 */
+	onSyncCode?: (info: { code: number; label: string; ers: boolean; polarity: number }) => void;
 	/** A valid FIW was decoded (after SYNC1, before SYNC2). */
 	onFiw?: (fiw: FlexFiw) => void;
 	/**
@@ -151,4 +159,12 @@ export interface FlexMessage {
 	baud?: number;
 	/** FSK levels (2 or 4) for the per-row mode tag. */
 	levels?: number;
+	/**
+	 * Calculated over-the-air timestamp (ARIB 3.7.2), attached when the network
+	 * clock is available: the confirmed, consistency-voted date and/or time and
+	 * timezone decoded from the BIW stream, e.g. "2026-10-26 15:42:00 +2h". Null
+	 * when no clock component has been confirmed yet. This is the FLEX network's
+	 * own time, distinct from the receiver's wall clock.
+	 */
+	flexTime?: string | null;
 }

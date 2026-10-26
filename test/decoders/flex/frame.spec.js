@@ -3,6 +3,8 @@ import { bchEncode, bchDecode } from '@/worker/decoders/flex/bch';
 import { decodeFiw } from '@/worker/decoders/flex/fiw';
 import { decodePhase, decodeFrame, FlexFrameDecoder } from '@/worker/decoders/flex/frame';
 import { describeInstruction } from '@/worker/decoders/flex/group';
+import { verifyNumericKChecksum } from '@/worker/decoders/flex/numeric';
+import { formatFlexTime } from '@/worker/decoders/flex/flextime';
 
 // -- Synthetic FLEX frame builder --------------------------------------------
 // Build a phase buffer directly at the 21-bit info-word level and BCH-encode
@@ -762,6 +764,33 @@ describe('FLEX frame decode', () => {
 		expect(dec.getNetInfo().time).toBe('10:12:00'); // 3 agree -> confirmed
 	});
 
+	it('expires a confirmed clock component after a full cycle without refresh', () => {
+		const dec = new FlexFrameDecoder();
+		const timeWord = (0x2 << 4) | (10 << 7) | (12 << 12) | (0 << 18);
+		const tframe = () => {
+			const ph = [makePhase(), makePhase(), makePhase(), makePhase()];
+			put(ph[0], 0, biw(2, 3));
+			put(ph[0], 1, timeWord);
+			return ph;
+		};
+		// Confirm time at cycle 3 (3 agreeing readings).
+		for (let f = 0; f < 3; f++) dec.decode(tframe(), [0], { ...FIW, cycle: 3, frame: f }, 0);
+		expect(dec.getNetInfo().time).toBe('10:12:00');
+
+		// Advance frames with no TIME word (empty BIW frames) past a full cycle
+		// (1920 frames). The monotonic counter crosses cycle wraps; once the gap
+		// reaches a full cycle the confirmed time is expired.
+		const empty = () => {
+			const ph = [makePhase(), makePhase(), makePhase(), makePhase()];
+			put(ph[0], 0, biw(1, 2)); // address field, no BIW extra words
+			return ph;
+		};
+		// Walk ~17 cycles of frames (well over 1920) so the mono gap exceeds a cycle.
+		for (let c = 4; c < 15; c++) dec.decode(empty(), [0], { ...FIW, cycle: c, frame: 0 }, 0);
+		for (let c = 0; c < 10; c++) dec.decode(empty(), [0], { ...FIW, cycle: c, frame: 0 }, 0);
+		expect(dec.getNetInfo().time).toBeNull(); // stale -> expired
+	});
+
 	it('corrects the 5-bit year field rollover after 2025 (DATE voting)', () => {
 		const dec = new FlexFrameDecoder();
 		// year_raw 0 => 1994; with the current year >= 2026 it rolls to 2026.
@@ -829,6 +858,64 @@ describe('FLEX frame decode', () => {
 		// drops it with a >>9 off-by-one; our >>10 keeps the full 11-bit field.
 		const e10only = (0x1 << 4) | (0x1 << 7) | (1 << 20);
 		expect(describeInstruction(e10only)).toBe('system event'); // e10 reserved, no name, but no crash/misread
+	});
+
+	it('formats the calculated flextime only from confirmed components', () => {
+		const base = { localId: null, coverageZone: null, countryCode: null, tmf: null, dst: null };
+		const clk = (over) => ({ year: null, month: null, day: null, hour: 15, min: 42, coarseSec: 0, extSec: null, standardMode: false, ...over });
+		// Nothing confirmed -> no timestamp printed at all.
+		expect(formatFlexTime({ ...base, date: null, time: null, tzOffsetMin: null, clock: null }, 0)).toBeNull();
+		// Date only (no clock).
+		expect(formatFlexTime({ ...base, date: '2026-10-26', time: null, tzOffsetMin: null, clock: null }, 0)).toBe('2026-10-26');
+		// Date + time + whole-hour TZ (DIRECT mode: no frame offset).
+		expect(formatFlexTime({ ...base, date: '2026-10-26', time: '15:42:00', tzOffsetMin: 120, dst: false, clock: clk({}) }, 50)).toBe('2026-10-26 15:42:00 +2h');
+		// Fractional-hour TZ with DST active, negative offset (DIRECT).
+		expect(formatFlexTime({ ...base, date: null, time: '09:30:00', tzOffsetMin: -330, dst: true, clock: clk({ hour: 9, min: 30 }) }, 0)).toBe('09:30:00 -5h30m DST');
+	});
+
+	it('adds the per-frame offset in STANDARD mode but not DIRECT (time-mode vote)', () => {
+		const base = { localId: null, coverageZone: null, countryCode: null, tmf: null, dst: null, date: null, tzOffsetMin: null };
+		const clk = (standardMode) => ({ year: null, month: null, day: null, hour: 10, min: 0, coarseSec: 0, extSec: null, standardMode });
+		// STANDARD: TIME is Frame-0 time; frame 40 adds 40 * 1.875 = 75 s -> 10:01:15.
+		expect(formatFlexTime({ ...base, time: '10:00:00', clock: clk(true) }, 40)).toBe('10:01:15');
+		// DIRECT: TIME already carries the frame's instant; no offset -> 10:00:00.
+		expect(formatFlexTime({ ...base, time: '10:00:00', clock: clk(false) }, 40)).toBe('10:00:00');
+		// STANDARD with extended seconds (coarse 2 = 15 s, ext 3 = 2.8125 s) at
+		// frame 0: 15 + 2.8125 = 17 s (truncated).
+		const clkExt = { year: null, month: null, day: null, hour: 10, min: 0, coarseSec: 2, extSec: 3, standardMode: true };
+		expect(formatFlexTime({ ...base, time: '10:00:15', clock: clkExt }, 0)).toBe('10:00:17');
+	});
+
+	it('verifies the numeric 6-bit K checksum (ARIB 3.10.1.1.1)', () => {
+		// Two body words (short-address numeric). Compute the K the same way the
+		// decoder does, place K3-K0 in the vector word (bits 17-20) and K5K4 in
+		// body0 (bits 0-1), and confirm it verifies; then corrupt a data bit.
+		const words = new Uint32Array(88);
+		const status = new Int8Array(88).fill(1); // all CLEAN
+		const j = 2; // vector word index
+		const body = [3, 4]; // body0 at 3, one more data word at 4
+		words[3] = 0x123450 & ~0x03; // body0 data (K5K4 zeroed for the sum)
+		words[4] = 0x0abcde;
+		// Recompute K over the body words (K5K4 already zero in body0).
+		let kSum = 0;
+		for (const w of body) {
+			kSum += words[w] & 0xff;
+			kSum += (words[w] >> 8) & 0xff;
+			kSum += (words[w] >> 16) & 0x1f;
+		}
+		kSum &= 0xff;
+		const k6 = ~((kSum & 0x3f) + (kSum >> 6)) & 0x3f;
+		words[3] |= (k6 >> 4) & 0x03; // K5K4 into body0 bits 0-1
+		words[j] = ((k6 & 0x0f) << 17) >>> 0; // K3-K0 into vector word bits 17-20
+		expect(verifyNumericKChecksum(words, status, words[j], body)).toBe(true);
+
+		// Corrupt a data bit -> checksum must now fail.
+		words[4] ^= 0x10;
+		expect(verifyNumericKChecksum(words, status, words[j], body)).toBe(false);
+
+		// A lost body word cannot be verified -> null.
+		status[4] = 3; // WORD_UNCORRECTABLE
+		expect(verifyNumericKChecksum(words, status, words[j], body)).toBeNull();
 	});
 });
 

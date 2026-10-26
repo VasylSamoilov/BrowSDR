@@ -98,6 +98,14 @@ export interface FlexStatus {
 	groupSlots?: Array<{ state: string; targetFrame: number; members: number[] }>;
 	/** In-flight fragment reassembly buffers for the active polarity. */
 	reasmBuffers?: number;
+	/** Most recent non-mode sync-code detection (ERS or a reserved code), or
+	 * null. ERS (Ar) is reported once per burst; reserved codes only on a
+	 * 100%-error-free match. Carries a human label and the raw 16-bit code. */
+	lastSyncEvent?: { label: string; code: number; ers: boolean } | null;
+	/** Resolution of the confirmed network time in seconds: 7.5 (coarse, TIME
+	 * word only) or 0.9375 (refined, when the extended-seconds TZ/SysInfo word
+	 * is also confirmed). Null when no time is confirmed (ARIB 3.7.2). */
+	timePrecisionSec?: number | null;
 }
 export type Rtl433Message =
 	{ type: 'rtl433_event'; freq: number; event: Record<string, unknown> } | { type: 'rtl433_status'; freq?: number; status: Rtl433Status };

@@ -47,6 +47,7 @@
 				<span v-if="entry.protocol === 'flex' && entry.sigOk === true" title="Signature OK" style="color:#66bb6a;flex-shrink:0;font-size:9px;font-weight:700;">S&#10003;</span>
 				<span v-else-if="entry.protocol === 'flex' && entry.sigOk === false" title="Signature FAILED" style="color:#ff5252;flex-shrink:0;font-size:9px;font-weight:700;">S&#10007;</span>
 				<span v-if="entry.protocol === 'flex' && entry.flexBaud" class="pocsag-flex-mode" :title="'Air mode: ' + entry.flexBaud + 'bps / ' + entry.flexLevels + '-FSK'">{{ entry.flexBaud }}/{{ entry.flexLevels }}FSK</span>
+				<span v-if="entry.protocol === 'flex' && entry.flexTime" class="pocsag-flex-time" title="Calculated FLEX network time (over-the-air clock)">&#128340; {{ entry.flexTime }}</span>
 				<span class="pocsag-type" :class="'pocsag-type-' + (entry.voiceEvent ? 'voice' : entry.type)">{{ entry.type.toUpperCase() }}</span>
 				<span class="pocsag-baud" v-if="entry.baud">{{ entry.baud }}Bd</span>
 				<span class="pocsag-check" v-if="entry.uncorrectableCount" title="Uncorrectable codewords (FEC decode failed)" style="flex-shrink:0;font-size:9px;font-weight:700;color:#ff5252;">✗{{ entry.uncorrectableCount }}</span>

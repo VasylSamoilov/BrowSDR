@@ -11,6 +11,7 @@
 
 import { FlexFrontend, RX_STATE_SYNC1, RX_STATE_FIW, RX_STATE_SYNC2, RX_STATE_DATA } from './frontend';
 import { FlexFrameDecoder } from './frame';
+import { formatFlexTime } from './flextime';
 import type { FlexMode, FlexFiw, FlexPhaseData, FlexMessage } from './types';
 import type { FlexStatus, FlexRxStage } from '@/worker/decoders/types';
 import type { CharsetKey } from '@/worker/decoders/charsets';
@@ -23,6 +24,7 @@ export class FlexDecoder {
 	private charset: CharsetKey;
 	private mode: FlexMode | null = null;
 	private polarity = 0;
+	private lastSyncEvent: { label: string; code: number; ers: boolean } | null = null;
 
 	constructor(audioRate: number, onMessage: (msg: FlexMessage) => void, charset: CharsetKey = FLEX_DEFAULT_CHARSET) {
 		this.onMessage = onMessage;
@@ -35,13 +37,22 @@ export class FlexDecoder {
 				this.mode = mode;
 				this.polarity = polarity;
 			},
+			onSyncCode: (info) => {
+				this.onSyncCode(info);
+			},
 			onFrame: (phases: FlexPhaseData[], activePhases: number[], fiw: FlexFiw, polarity: number) => {
 				// Bitrate (bps) = symbol rate x bits/symbol (4FSK carries 2 bits).
 				const levels = this.mode ? this.mode.levels : 2;
 				const bps = this.mode ? this.mode.baud * (levels === 4 ? 2 : 1) : 0;
-				for (const msg of this.frames.decode(phases, activePhases, fiw, polarity)) {
+				const msgs = this.frames.decode(phases, activePhases, fiw, polarity);
+				// Calculated network timestamp, read AFTER decode so it reflects
+				// this frame's clock votes; same for every message in the frame
+				// (the BIW clock is per-frame, so all pages share the frame time).
+				const flexTime = formatFlexTime(this.frames.getNetInfo(), fiw.frame);
+				for (const msg of msgs) {
 					msg.baud = bps;
 					msg.levels = levels;
+					msg.flexTime = flexTime;
 					this.onMessage(msg);
 				}
 			},
@@ -51,6 +62,17 @@ export class FlexDecoder {
 	/** Feed a block of FM-demodulated Float32 audio samples. */
 	process(samples: Float32Array): void {
 		this.frontend.process(samples);
+	}
+
+	/**
+	 * Handle a non-mode sync-code detection from the front end: a reserved code
+	 * (A5-A15, 100%-error-free gated) or the Ar ERS code (reported once per
+	 * burst). Record it for the UI status row and print a log line.
+	 */
+	private onSyncCode(info: { code: number; label: string; ers: boolean; polarity: number }): void {
+		this.lastSyncEvent = { label: info.label, code: info.code, ers: info.ers };
+		const what = info.ers ? 'FLEX ERS (emergency re-sync) detected' : 'FLEX reserved sync code detected';
+		console.info(`${what}: ${info.label} [0x${info.code.toString(16).padStart(4, '0')}]`);
 	}
 
 	/** Switch the active FLEX charset. A handler charset (e.g. Kanji) changes
@@ -101,6 +123,10 @@ export class FlexDecoder {
 				.getGroupSlots(this.polarity)
 				.map((s) => ({ state: s.state, targetFrame: s.targetFrame, members: s.members.slice() })),
 			reasmBuffers: this.frames.getReasmCount(this.polarity),
+			lastSyncEvent: this.lastSyncEvent,
+			// Time resolution: 0.9375 s when the extended-seconds TZ word is also
+			// confirmed, else the 7.5 s coarse TIME step; null with no time.
+			timePrecisionSec: net.time === null ? null : net.tzOffsetMin !== null ? 0.9375 : 7.5,
 		};
 	}
 

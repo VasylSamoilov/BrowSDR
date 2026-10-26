@@ -171,8 +171,10 @@
 			<span v-if="receiver.flexStatus[i]?.tmf != null" style="color:#aaa;" title="SSID2 traffic-management flags (which of the 4 traffic groups this channel serves)">TMF 0x{{ receiver.flexStatus[i].tmf.toString(16).toUpperCase() }}</span>
 			<span v-if="receiver.flexStatus[i]?.date" style="color:#8bc34a;">{{ receiver.flexStatus[i].date }}</span>
 			<span v-if="receiver.flexStatus[i]?.time" style="color:#8bc34a;">{{ receiver.flexStatus[i].time }}<template v-if="receiver.flexStatus[i]?.tzOffsetMin != null">&nbsp;{{ receiver.flexTzLabel(i) }}</template></span>
+			<span v-if="receiver.flexStatus[i]?.timePrecisionSec != null" style="color:#6d8a4a;font-size:9px;" :title="'Network time resolution: ' + (receiver.flexStatus[i].timePrecisionSec === 0.9375 ? '0.9375 s (extended seconds from TZ word)' : '7.5 s (coarse TIME step; no TZ word yet)')">&plusmn;{{ receiver.flexStatus[i].timePrecisionSec === 0.9375 ? '0.94' : '7.5' }}s</span>
 			<span v-if="receiver.flexStatus[i]?.dst != null" :style="{ color: receiver.flexStatus[i].dst ? '#8bc34a' : '#888' }" :title="receiver.flexStatus[i].dst ? 'Daylight saving time active' : 'Standard time (no DST)'">{{ receiver.flexStatus[i].dst ? 'DST' : 'STD' }}</span>
 			<span v-if="receiver.flexStatus[i]?.reasmBuffers" style="color:#ffb74d;" title="In-flight fragment reassembly buffers (this polarity)">REASM&times;{{ receiver.flexStatus[i].reasmBuffers }}</span>
+			<span v-if="receiver.flexStatus[i]?.lastSyncEvent" :style="{ color: receiver.flexStatus[i].lastSyncEvent.ers ? '#ff5252' : '#ffca28', fontWeight:700 }" :title="(receiver.flexStatus[i].lastSyncEvent.ers ? 'Emergency re-synchronization (ERS) detected -- base station lost sync timing; receiver re-synchronizes' : 'Reserved sync code detected (100% error-free)') + ': code 0x' + receiver.flexStatus[i].lastSyncEvent.code.toString(16).padStart(4, '0')">{{ receiver.flexStatus[i].lastSyncEvent.ers ? 'ERS' : 'SYNC' }}: {{ receiver.flexStatus[i].lastSyncEvent.label }}</span>
 		</div>
 
 		<!-- FLEX group-messaging slots (A1): 16 temporary-address slots as a

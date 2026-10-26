@@ -22,14 +22,14 @@
 import { bchDecode, countBits } from './bch';
 import { decodeBiws } from './biw';
 import { combineSubframes } from './combine';
-import { extractNumeric, numberedNumericMessage } from './numeric';
+import { extractNumeric, numberedNumericMessage, verifyNumericKChecksum } from './numeric';
 import { makeGroupSlots, foldGroupEvents, ageGroups, recordGroupEvent, tempSlotOf, describeInstruction } from './group';
 import { classifyAddress, decodeShortAddress, decodeLongAddress } from './address';
 import { parseShortMessage, hexMessage } from './vectors';
 import { verifyKChecksum, alphaBodyWords } from './checksum';
 import { extractKanji } from './kanji';
 import { dedupVector, makeDedupStore } from './dedup';
-import { makeFlexTimeVote } from './flextime';
+import { makeFlexTimeVote, tickFlexTime, makeNetInfo } from './flextime';
 import { partialMessage } from './reassembly';
 import type { FlexPhaseData, FlexFiw, FlexMessage } from './types';
 import type { ReasmSlot, FlexNetInfo, GroupEvent, GroupSlot, CapClass, HexHeader, DedupStore, FlexTimeVote } from './frame.types';
@@ -269,6 +269,7 @@ export function decodePhase(
 	groupEvents?: GroupEvent[],
 	dedup?: DedupStore,
 	timeVote?: FlexTimeVote,
+	frameMono = 0,
 ): FlexMessage[] {
 	const decoded = bchDecodePhase(ph);
 	const { words, status } = combineSubframes(decoded.words, decoded.status, numTransmissions);
@@ -288,7 +289,7 @@ export function decodePhase(
 	if (voffset === 0 || voffset >= FLEX_WORDS_PER_FRAME) return msgs;
 
 	// Decode any BIW network/temporal words (between BIW word 0 and the AF).
-	if (net && timeVote) decodeBiws(words, status, aoffset, net, fiw, timeVote);
+	if (net && timeVote) decodeBiws(words, status, aoffset, net, fiw, timeVote, frameMono);
 
 	let addrIdx = aoffset;
 	let vecCount = 0;
@@ -573,15 +574,15 @@ function decodeNumericVector(
 	kind: string,
 ): FlexMessage | null {
 	if (mw1 > 87 || mw2 > 87) return null;
-	const wordIdx: number[] = [];
-	if (isLong && j + 1 < FLEX_WORDS_PER_FRAME) wordIdx.push(j + 1);
+	const wordIdx: number[] = isLong && j + 1 < FLEX_WORDS_PER_FRAME ? [j + 1] : [];
 	for (let w = mw1; w <= mw2; w++) wordIdx.push(w);
 	const text = extractNumeric(words, status, wordIdx, vecType);
+	const kOk = verifyNumericKChecksum(words, status, words[j], wordIdx); // 6-bit K (ARIB 3.10.1.1.1)
 	if (vecType === VEC_NUMBERED_NUM) {
 		const hdrIdx = isLong ? j + 1 : mw1;
-		return numberedNumericMessage(words, status, hdrIdx, base, text);
+		return { ...numberedNumericMessage(words, status, hdrIdx, base, text), kOk };
 	}
-	return { ...base, kind, text };
+	return { ...base, kind, text, kOk };
 }
 
 /**
@@ -625,12 +626,10 @@ export function decodeFrame(phases: FlexPhaseData[], activePhases: number[], fiw
 
 // -- Fragment reassembly (ARIB STD-43A 3.10.1.3) -----------------------------
 
-// Fragment reassembly slots (multimon-ng FLEX_FRAG_MAX_SLOTS = 64). A larger
-// store reduces eviction pressure when many capcodes fragment concurrently.
+// Fragment reassembly slots (multimon-ng FLEX_FRAG_MAX_SLOTS = 64).
 const REASM_SLOTS = 64;
 // Up to 128 frames between fragments on shared channels (spec Section 4.2;
-// matches multimon-ng FLEX_FRAG_TIMEOUT). Age is computed on the absolute
-// frame (cycle*128+frame) modulo 1920, so it rolls over across cycles.
+// matches multimon-ng FLEX_FRAG_TIMEOUT). Age is on the mod-1920 absolute frame.
 const REASM_TIMEOUT_FRAMES = 128;
 
 /**
@@ -653,16 +652,7 @@ export class FlexFrameDecoder {
 	// updated each decoded frame; null until the first frame.
 	private ber: number | null = null;
 	// Network/temporal info accumulated from BIW words across frames.
-	private readonly net: FlexNetInfo = {
-		localId: null,
-		coverageZone: null,
-		countryCode: null,
-		tmf: null,
-		date: null,
-		time: null,
-		tzOffsetMin: null,
-		dst: null,
-	};
+	private readonly net: FlexNetInfo = makeNetInfo();
 	// Consistency-voting state for the over-the-air clock, per polarity.
 	private readonly timeVote: FlexTimeVote[] = [makeFlexTimeVote(), makeFlexTimeVote()];
 	// Temporary-address (group) slot state per polarity: [pol][16 slots].
@@ -699,7 +689,10 @@ export class FlexFrameDecoder {
 
 	/** Decode one completed frame, applying combine + reassembly. */
 	decode(phases: FlexPhaseData[], activePhases: number[], fiw: FlexFiw, polarity: number): FlexMessage[] {
+		const pol = polarity & 1;
 		const frameAbs = fiw.cycle * 128 + fiw.frame;
+		// Advance the monotonic clock counter and expire stale flextime.
+		const frameMono = tickFlexTime(this.timeVote[pol], this.net, frameAbs);
 		const out: FlexMessage[] = this.expire(polarity, frameAbs);
 		this.ageGroups(polarity, frameAbs);
 
@@ -707,7 +700,7 @@ export class FlexFrameDecoder {
 		const tally = { errBits: 0, totalBits: 0 };
 		const groupEvents: GroupEvent[] = [];
 		for (const pi of activePhases) {
-			for (const msg of decodePhase(phases[pi], names[pi], fiw, fiw.numTransmissions, this.kanji, tally, this.net, groupEvents, this.dedup[polarity & 1], this.timeVote[polarity & 1])) {
+			for (const msg of decodePhase(phases[pi], names[pi], fiw, fiw.numTransmissions, this.kanji, tally, this.net, groupEvents, this.dedup[pol], this.timeVote[pol], frameMono)) {
 				const assembled = this.reassemble(msg, polarity, frameAbs);
 				if (assembled) {
 					assembled.inverted = (polarity & 1) === 1;

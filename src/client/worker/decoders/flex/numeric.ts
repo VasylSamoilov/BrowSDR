@@ -93,3 +93,39 @@ export function numberedNumericMessage(
 		special,
 	};
 }
+
+
+// Numeric K-checksum field positions (ARIB 3.10.1.1.1): K3-K0 in the vector
+// word bits 17-20, K5K4 in body word 0 bits 0-1.
+const NUM_K30_SHIFT = 17;
+const NUM_K30_MASK = 0x0f;
+const NUM_K54_MASK = 0x03;
+
+/**
+ * Verify the numeric 6-bit K checksum (ARIB 3.10.1.1.1). K3-K0 ride in the
+ * vector word (bits 17-20) and K5K4 in body word 0 (bits 0-1). The recomputed
+ * value sums three bit-groups (0-7, 8-15, 16-20) over every body word with the
+ * K5K4 bits zeroed in body word 0, folds the low 8 bits as (low6 + high2), and
+ * takes the 1's complement of the low 6 bits. `viw` is the vector word, `body`
+ * the ordered body word indices (body0 first). Returns true/false, or null when
+ * a body word was lost (cannot verify).
+ */
+export function verifyNumericKChecksum(words: Uint32Array, status: Int8Array, viw: number, body: number[]): boolean | null {
+	if (body.length === 0) return null;
+	const body0 = body[0];
+	if (body0 >= FLEX_WORDS_PER_FRAME || wordLost(status[body0])) return null;
+	let kSum = 0;
+	for (let i = 0; i < body.length; i++) {
+		const w = body[i];
+		if (w >= FLEX_WORDS_PER_FRAME || wordLost(status[w])) return null;
+		let dw = words[w];
+		if (i === 0) dw &= ~NUM_K54_MASK; // zero K5K4 in body word 0
+		kSum += dw & 0xff;
+		kSum += (dw >> 8) & 0xff;
+		kSum += (dw >> 16) & 0x1f;
+	}
+	kSum &= 0xff;
+	const expected = ~((kSum & 0x3f) + (kSum >> 6)) & 0x3f;
+	const rxK = (((words[body0] & NUM_K54_MASK) << 4) | ((viw >> NUM_K30_SHIFT) & NUM_K30_MASK)) & 0x3f;
+	return rxK === expected;
+}

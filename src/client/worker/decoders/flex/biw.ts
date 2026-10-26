@@ -78,7 +78,15 @@ function wordLost(status: number): boolean {
  * promote into `net` only when corroborated. `fiw` supplies the cycle/frame
  * ground truth the time/esec cross-checks need.
  */
-export function decodeBiws(words: Uint32Array, status: Int8Array, aoffset: number, net: FlexNetInfo, fiw: FlexFiw, vote: FlexTimeVote): void {
+export function decodeBiws(
+	words: Uint32Array,
+	status: Int8Array,
+	aoffset: number,
+	net: FlexNetInfo,
+	fiw: FlexFiw,
+	vote: FlexTimeVote,
+	frameMono: number,
+): void {
 	for (let i = 1; i < aoffset && i < FLEX_WORDS_PER_FRAME; i++) {
 		if (wordLost(status[i])) continue;
 		const dw = words[i];
@@ -92,43 +100,43 @@ export function decodeBiws(words: Uint32Array, status: Int8Array, aoffset: numbe
 				net.tmf = (dw >> BIW_SSID2_TMF_SHIFT) & BIW_SSID2_TMF_MASK;
 				break;
 			case BIW_TYPE_DATE:
-				voteDateWord(dw, net, vote);
+				voteDateWord(dw, net, vote, frameMono);
 				break;
 			case BIW_TYPE_TIME:
-				voteTimeWord(dw, net, vote, fiw);
+				voteTimeWord(dw, net, vote, fiw, frameMono);
 				break;
 			case BIW_TYPE_SYSINFO:
-				voteSysInfoWord(dw, net, vote, fiw);
+				voteSysInfoWord(dw, net, vote, fiw, frameMono);
 				break;
 		}
 	}
 }
 
 /** Extract a DATE word (with year rollover correction) and vote it. */
-function voteDateWord(dw: number, net: FlexNetInfo, vote: FlexTimeVote): void {
+function voteDateWord(dw: number, net: FlexNetInfo, vote: FlexTimeVote, frameMono: number): void {
 	const yearRaw = (dw >> BIW_DATE_YEAR_SHIFT) & BIW_DATE_YEAR_MASK;
 	const day = (dw >> BIW_DATE_DAY_SHIFT) & BIW_DATE_DAY_MASK;
 	const month = (dw >> BIW_DATE_MONTH_SHIFT) & BIW_DATE_MONTH_MASK;
 	if (month < 1 || month > 12 || day < 1 || day > 31) return;
-	voteDate(vote, net, correctYearRollover(BIW_DATE_YEAR_BASE + yearRaw), month, day);
+	voteDate(vote, net, correctYearRollover(BIW_DATE_YEAR_BASE + yearRaw), month, day, frameMono);
 }
 
 /** Extract a TIME word and vote it (with FIW minute cross-check). */
-function voteTimeWord(dw: number, net: FlexNetInfo, vote: FlexTimeVote, fiw: FlexFiw): void {
+function voteTimeWord(dw: number, net: FlexNetInfo, vote: FlexTimeVote, fiw: FlexFiw, frameMono: number): void {
 	const hour = (dw >> BIW_TIME_HOUR_SHIFT) & BIW_TIME_HOUR_MASK;
 	const minute = (dw >> BIW_TIME_MINUTE_SHIFT) & BIW_TIME_MINUTE_MASK;
 	const sec = (dw >> BIW_TIME_SECOND_SHIFT) & BIW_TIME_SECOND_MASK;
 	if (hour > 23 || minute > 59 || sec > 7) return;
-	voteTime(vote, net, hour, minute, sec, fiw.cycle);
+	voteTime(vote, net, hour, minute, sec, fiw.cycle, fiw.frame, frameMono);
 }
 
 /** Extract a SysInfo word; if it is a time sub-type (A=0100/0101), vote the TZ. */
-function voteSysInfoWord(dw: number, net: FlexNetInfo, vote: FlexTimeVote, fiw: FlexFiw): void {
+function voteSysInfoWord(dw: number, net: FlexNetInfo, vote: FlexTimeVote, fiw: FlexFiw, frameMono: number): void {
 	const a = (dw >> BIW_SYSINFO_A_SHIFT) & BIW_SYSINFO_A_MASK;
 	if (a !== BIW_SYSINFO_A_TIME1 && a !== BIW_SYSINFO_A_TIME2) return;
 	const info = (dw >> BIW_SYSINFO_INFO_SHIFT) & BIW_SYSINFO_INFO_MASK;
 	const zone = info & 0x1f;
 	const dst = ((info >> 5) & 1) === 0; // L0=0 => DST active
 	const esec = (info >> 7) & 0x7;
-	voteTz(vote, net, zone, dst, esec, FLEX_TZ_TABLE[zone] ?? 0, fiw.cycle, fiw.frame);
+	voteTz(vote, net, zone, dst, esec, FLEX_TZ_TABLE[zone] ?? 0, fiw.cycle, fiw.frame, frameMono);
 }

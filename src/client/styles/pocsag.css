@@ -256,6 +256,18 @@
 	color: #80cbc4;
 }
 
+/* FLEX calculated network-time tag (over-the-air clock), muted green. */
+.pocsag-flex-time {
+	font-size: 9px;
+	font-weight: 700;
+	padding: 0px 4px;
+	border-radius: 3px;
+	flex-shrink: 0;
+	letter-spacing: 0.3px;
+	background: #1b3a1b;
+	color: #8bc34a;
+}
+
 /* FLEX phase tag, styled like the POCSAG function tag (plain light-purple). */
 .pocsag-flex-phase {
 	color: #b39ddb;

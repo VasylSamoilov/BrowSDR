@@ -27,7 +27,7 @@
  *   2 = +1/3 (inner positive), 3 = +1 (outer positive).
  */
 
-import { bchDecode, combinedACorrection } from './bch';
+import { bchDecode, combinedACorrection, BCH_CLEAN } from './bch';
 import { decodeFiw } from './fiw';
 import type { FlexMode, FlexFrontendEvents, FlexFiw, FlexPhaseData } from './types';
 
@@ -68,6 +68,38 @@ const MODES: FlexMode[] = [
 	{ syncCode: FLEX_SYNC_A3, baud: 1600, levels: 4, label: 'A3 (3200bps/4FSK)' },
 	{ syncCode: FLEX_SYNC_A2, baud: 3200, levels: 2, label: 'A2 (3200bps/2FSK)' },
 	{ syncCode: FLEX_SYNC_A4, baud: 3200, levels: 4, label: 'A4 (6400bps/4FSK)' },
+];
+
+// Non-functional-mode sync codes (ARIB STD-43A Table 3.2-5 / Section 3.2.1):
+//
+//   * Ar (0x34DF) is the Emergency Re-synchronization (ERS) code -- a VALID,
+//     specified sync, not reserved. Per Section 3.2.1 the base station sends it
+//     (BS + Ar + inv.BS + inv.Ar, like a sync "A" part but with NO FIW/S2/data)
+//     as a continuous burst when it loses sync timing, before resuming paging.
+//     The pager must react by RE-SYNCHRONIZING -- re-acquiring frame sync from
+//     this signal -- otherwise "the pager will stop receiving". This receiver
+//     reacts by reporting ERS and returning to S1 hunting, so it re-acquires on
+//     the next real A1-A4 frame; the Ar burst carries no decodable frame.
+//
+//   * A5-A15 are Reserved (A7 may carry ReFLEX, unsupported here). They carry no
+//     frame this receiver can decode, so they are only logged. To avoid false
+//     positives, a reserved code is reported ONLY on a 100%-error-free match.
+//
+// The 16-bit values are the outer code (codehigh) from syncCheck, cross-checked
+// against ARIB Table 3.2-5, the osmocom-analog TX sync arrays, and multimon-ng.
+const SYNC_CODE_TABLE: Array<{ code: number; label: string; ers: boolean }> = [
+	{ code: 0x34df, label: 'Ar (emergency re-sync)', ers: true },
+	{ code: 0x22b4, label: 'A5 (reserved)', ers: false },
+	{ code: 0xe9c4, label: 'A6 (reserved)', ers: false },
+	{ code: 0x4c7c, label: 'A7 (reserved, may be ReFLEX)', ers: false },
+	{ code: 0x9cbe, label: 'A8 (reserved)', ers: false },
+	{ code: 0xe41d, label: 'A9 (reserved)', ers: false },
+	{ code: 0xd379, label: 'A10 (reserved)', ers: false },
+	{ code: 0x5a17, label: 'A11 (reserved)', ers: false },
+	{ code: 0x6d73, label: 'A12 (reserved)', ers: false },
+	{ code: 0x9167, label: 'A13 (reserved)', ers: false },
+	{ code: 0x41a5, label: 'A14 (reserved)', ers: false },
+	{ code: 0x0e62, label: 'A15 (reserved)', ers: false },
 ];
 
 /**
@@ -141,6 +173,9 @@ export class FlexFrontend {
 	private syncACode = 0; // A code captured at sync-marker detection
 	private s1TailCount = 0; // 0 = hunting, 1..16 = counting inv.A tail
 	private mode: FlexMode | null = null;
+	// ERS (Ar) is sent as a continuous burst (up to ~4 min). Latch so it is
+	// reported ONCE per burst; re-armed when a real A1-A4 frame is acquired.
+	private ersReported = false;
 
 	// -- FIW (RX_STATE_FIW): 32-bit BCH codeword at 1600 baud --
 	private fiwCount = 0;
@@ -194,6 +229,7 @@ export class FlexFrontend {
 		this.syncACode = 0;
 		this.s1TailCount = 0;
 		this.mode = null;
+		this.ersReported = false;
 		this.fiwCount = 0;
 		this.fiwRaw = 0;
 		this.fiw = null;
@@ -496,11 +532,13 @@ export class FlexFrontend {
 			const finalSync = (~corrected >>> 16) & 0xffff;
 			const mode = MODES.find((m) => m.syncCode === finalSync);
 			if (!mode) {
+				this.reportNonModeSync(finalSync, this.syncACode, invA);
 				this.s1TailCount = 0;
 				return;
 			}
 			this.syncACode = corrected;
 			this.mode = mode;
+			this.ersReported = false; // real frame acquired -> re-arm ERS logging
 			this.ev.onMode?.(mode, this.polarity);
 			// FIW is always 1600 baud / 2FSK; the data rate (mode.baud) applies
 			// only after a valid FIW. Keep 1600 until then.
@@ -752,7 +790,48 @@ export class FlexFrontend {
 		const correctedSync = r.info >= 0 ? (~r.corrected >>> 16) & 0xffff : 0;
 		const code = correctedSync !== 0 ? correctedSync : syncCode;
 
-		return MODES.some((m) => m.syncCode === code);
+		// Accept a functional mode OR a recognized reserved/Ar code: the latter
+		// has no mode but must reach the S1 tail stage to be logged (gated there
+		// on a 100%-error-free match). An unrecognized code is rejected here.
+		return MODES.some((m) => m.syncCode === code) || SYNC_CODE_TABLE.some((s) => s.code === code);
+	}
+
+	/**
+	 * A validated S1 sync whose outer code is not a functional mode (A1-A4):
+	 * either the Ar ERS code or a Reserved code (A5-A15).
+	 *
+	 *   * Ar (ERS): a valid, specified sync. combinedACorrection has already
+	 *     validated A against inv.A, so it is reported unconditionally, and the
+	 *     receiver reacts per Section 3.2.1 by RE-SYNCHRONIZING: drop lock and
+	 *     clear sync state so the next real A1-A4 frame is re-acquired cleanly
+	 *     (the Ar burst itself carries no FIW/S2/data to decode).
+	 *   * Reserved (A5-A15): reported ONLY when both the raw A and raw inv.A
+	 *     decode BCH-CLEAN (zero bit errors), so a corrupted A1-A4 that
+	 *     combinedACorrection might coerce toward a reserved pattern can never
+	 *     raise a false reserved report. `rawA`/`rawInvA` are pre-correction.
+	 */
+	private reportNonModeSync(finalSync: number, rawA: number, rawInvA: number): void {
+		const entry = SYNC_CODE_TABLE.find((s) => s.code === finalSync);
+		if (!entry) return; // unknown 16-bit code -> not recognized, stay silent
+
+		if (entry.ers) {
+			// Report once per burst; the burst repeats Ar continuously, so
+			// suppress until a real frame re-arms the latch.
+			if (!this.ersReported) {
+				this.ersReported = true;
+				this.ev.onSyncCode?.({ code: finalSync, label: entry.label, ers: true, polarity: this.polarity });
+			}
+			// React to ERS: re-synchronize. Drop lock and reset so the real
+			// frame that follows the burst re-acquires from its S1 preamble.
+			this.setLocked(false);
+			return;
+		}
+
+		// Reserved code: require a 100%-error-free match to avoid false positives.
+		const aClean = bchDecode(rawA).status === BCH_CLEAN;
+		const invClean = bchDecode(~rawInvA >>> 0).status === BCH_CLEAN;
+		if (!aClean || !invClean) return;
+		this.ev.onSyncCode?.({ code: finalSync, label: entry.label, ers: false, polarity: this.polarity });
 	}
 
 	// -- read-only accessors for callers / tests --

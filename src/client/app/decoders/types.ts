@@ -77,6 +77,9 @@ export interface PagerLogEntry {
 	flexBaud?: number;
 	/** FLEX FSK levels (2 or 4) for the mode tag. */
 	flexLevels?: number;
+	/** FLEX calculated over-the-air (network) timestamp, or null/undefined when
+	 * the network clock has not been confirmed. Shown as a per-row tag. */
+	flexTime?: string | null;
 }
 
 /** @deprecated Use PagerLogEntry. Kept as an alias during migration. */

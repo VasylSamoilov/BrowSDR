@@ -110,6 +110,21 @@ export interface FlexNetInfo {
 	tzOffsetMin: number | null;
 	/** Daylight-saving active (SysInfo L0=0 => DST), or null when no TZ seen. */
 	dst: boolean | null;
+	/** Confirmed clock components for a precise per-frame timestamp (ARIB
+	 * 3.7.2). Null until the TIME vote promotes. `standardMode` selects whether
+	 * the current frame's 1.875 s offset is added (standard) or the time already
+	 * reflects the frame (direct). `extSec` is null until TZ is confirmed; year/
+	 * month/day are null until DATE is confirmed. */
+	clock: {
+		year: number | null;
+		month: number | null;
+		day: number | null;
+		hour: number;
+		min: number;
+		coarseSec: number;
+		extSec: number | null;
+		standardMode: boolean;
+	} | null;
 }
 
 /**
@@ -125,10 +140,39 @@ export interface FlexTimeVote {
 	timeHour: number;
 	timeMin: number;
 	timeSec: number;
+	// Time-mode detection (ARIB 3.7.2; port of multimon-ng tmode). STANDARD
+	// (tmode 0, default): TIME is the cycle's Frame-0 time, constant across the
+	// cycle, so the current frame's offset (frame*1.875 s) is added to get the
+	// per-frame instant. DIRECT (tmode 1): TIME already reflects the current
+	// frame -- observed on some real networks -- so no offset is added. Decided
+	// by comparing TIME readings >=5 frames apart within one cycle: identical ->
+	// standard vote, differing -> direct vote; 3 votes flip the mode.
+	tmode: number;
+	tmodeVotesStd: number;
+	tmodeVotesDir: number;
+	tmodeAnchorValid: boolean;
+	tmodeAnchorCycle: number;
+	tmodeAnchorFrame: number;
+	tmodeAnchorMin: number;
+	tmodeAnchorSec: number;
+	// Confirmed extended-seconds (S5-S3, each 0.9375 s) from the TZ SysInfo word;
+	// -1 until a TZ reading is confirmed. Refines the coarse 7.5 s second field.
+	extSec: number;
 	// Date vote: history ring of calendar-valid readings.
 	dateRing: Array<{ year: number; month: number; day: number }>;
 	dateIdx: number;
 	// Timezone vote: history ring; zone+DST+esec must match to agree.
 	tzRing: Array<{ zone: number; dst: boolean; esec: number }>;
 	tzIdx: number;
+	// Monotonic absolute frame at which each component was last confirmed, or
+	// -1 if never confirmed. Used to expire a stale component (see expireFlexTime).
+	// Monotonic (not mod-1920) so a stale age cannot alias a fresh one across a
+	// cycle wrap -- the fault in the multimon-ng reference's expire.
+	confirmedDate: number;
+	confirmedTime: number;
+	confirmedTz: number;
+	// Monotonic frame counter state: accumulated cycle-space offset and the
+	// previous mod-1920 position, to measure staleness without wrap aliasing.
+	monoBase: number;
+	lastAbs: number;
 }

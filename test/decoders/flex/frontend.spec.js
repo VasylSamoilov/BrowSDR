@@ -21,6 +21,11 @@ const S1 = {
 	A4: { bytes: [0xaa, 0xaa, 0xaa, 0xaa, 0x21, 0x5f, 0x59, 0x39, 0x55, 0x55, 0xde, 0xa0, 0xa6, 0xc6], baud: 3200, levels: 4 },
 };
 
+// ERS (Ar) and a reserved code (A5) S1 syncs (non-mode). Ar = osmocom sync_ar
+// {cb,20,59,39} / sync_ar_inv {34,df,a6,c6}; A5 = {dd,4b,59,39} / inv {22,b4,..}.
+const S1_ERS = [0xaa, 0xaa, 0xaa, 0xaa, 0xcb, 0x20, 0x59, 0x39, 0x55, 0x55, 0x34, 0xdf, 0xa6, 0xc6];
+const S1_A5 = [0xaa, 0xaa, 0xaa, 0xaa, 0xdd, 0x4b, 0x59, 0x39, 0x55, 0x55, 0x22, 0xb4, 0xa6, 0xc6];
+
 /** Expand MSB-first bytes to a bit array. */
 function bytesToBits(bytes) {
 	const bits = [];
@@ -147,6 +152,36 @@ describe('FLEX front end -- lock + mode detection', () => {
 		});
 	}
 
+	it('reports ERS (Ar) as a non-mode sync and detects no air mode', () => {
+		const events = [];
+		let mode = null;
+		const fe = new FlexFrontend(SAMPLE_RATE, {
+			onMode: (m) => (mode = m),
+			onSyncCode: (e) => events.push(e),
+		});
+		fe.process(renderAudio(bytesToBits(S1_ERS)));
+		expect(mode).toBeNull(); // Ar is not a decodable mode
+		expect(events.length).toBeGreaterThanOrEqual(1);
+		expect(events[0].ers).toBe(true);
+		expect(events[0].code).toBe(0x34df);
+		expect(events[0].label).toMatch(/emergency re-sync/i);
+	});
+
+	it('reports a reserved code (A5) as a non-ERS non-mode sync', () => {
+		const events = [];
+		let mode = null;
+		const fe = new FlexFrontend(SAMPLE_RATE, {
+			onMode: (m) => (mode = m),
+			onSyncCode: (e) => events.push(e),
+		});
+		fe.process(renderAudio(bytesToBits(S1_A5)));
+		expect(mode).toBeNull();
+		expect(events.length).toBeGreaterThanOrEqual(1);
+		expect(events[0].ers).toBe(false);
+		expect(events[0].code).toBe(0x22b4);
+		expect(events[0].label).toMatch(/A5.*reserved/i);
+	});
+
 	it('does not detect a mode from low-level noise', () => {
 		let mode = null;
 		const fe = new FlexFrontend(SAMPLE_RATE, { onMode: (m) => (mode = m) });
@@ -154,6 +189,28 @@ describe('FLEX front end -- lock + mode detection', () => {
 		for (let i = 0; i < noise.length; i++) noise[i] = (Math.random() - 0.5) * 0.01;
 		fe.process(noise);
 		expect(mode).toBeNull();
+	});
+
+	it('every reserved + ERS sync constant is a valid, distinct BCH sync code', () => {
+		// The osmocom-analog TX A-codeword high words (first 2 bytes) for each
+		// non-mode sync (ARIB Table 3.2-5), with the common 0x5939 tail. The
+		// receiver's outer code (codehigh) = ~(A >> 16). This reproduces the
+		// cross-source derivation and proves ALL reserved codes, not just A5.
+		const codes = {
+			A5: 0xdd4b, A6: 0x163b, A7: 0xb383, A8: 0x6341, A9: 0x1be2, A10: 0x2c86,
+			A11: 0xa5e8, A12: 0x928c, A13: 0x6e98, A14: 0xbe5a, A15: 0xf19d, Ar: 0xcb20,
+		};
+		const seen = new Set();
+		for (const [name, hi] of Object.entries(codes)) {
+			const a = ((hi << 16) | 0x5939) >>> 0; // full 32-bit A codeword
+			const corrected = combinedACorrection(a, ~a >>> 0);
+			expect(corrected, `${name} must validate`).toBe(a);
+			const codehigh = (~corrected >>> 16) & 0xffff;
+			expect(seen.has(codehigh), `${name} codehigh 0x${codehigh.toString(16)} must be distinct`).toBe(false);
+			seen.add(codehigh);
+		}
+		// The 12 non-mode codes are all distinct from each other.
+		expect(seen.size).toBe(12);
 	});
 
 	it('reset() returns to the SYNC1 hunting state', () => {
