@@ -7,6 +7,7 @@ import { POCSAGDecoder } from '@/worker/decoders/pocsag';
 import { GSCDecoder } from '@/worker/decoders/golay';
 import { FlexDecoder } from '@/worker/decoders/flex/decoder';
 import type { VfoParams, VfoState, PerfCounters } from '@/worker/runtime/types';
+import type { PagerProtocol } from '@/worker/decoders/charsets';
 import { AUDIO_RATE } from '@/worker/runtime/constants';
 import type { Backend } from '@/worker/runtime/backend';
 import { appendPcm, mixLength } from './audio-queue';
@@ -51,16 +52,27 @@ export function installWorkerAudioHandler(
 		if (msg.samples) {
 			const out = new Float32Array(msg.samples);
 			const channels = msg.channels ?? 1;
-			perf.audioSamplesOut += out.length / channels;
 
-			if (params.enabled) {
-				queueLocalPcm(state, out, channels);
-				if (whisperCallback && shouldFeedWhisper(backend, params)) {
-					pushWhisper(v, params.freq, downmix(out, channels));
+			if (msg.pager) {
+				// A pager-leg buffer: demodulated at the protocol's own RX
+				// bandwidth, it feeds ONLY that decoder — never playback, whisper,
+				// or the other pager decoders.
+				decodeLocalPager(pager, params, state, v, out, msg.pager);
+			} else {
+				// Main VFO audio: playback + whisper only. Pager decode runs off
+				// the tagged per-protocol legs above, not this shared buffer. The
+				// untagged buffer still drives a teardown sweep so a decoder is
+				// released when its protocol is disabled (no tagged buffer then
+				// arrives to carry the teardown).
+				perf.audioSamplesOut += out.length / channels;
+				if (params.enabled) {
+					queueLocalPcm(state, out, channels);
+					if (whisperCallback && shouldFeedWhisper(backend, params)) {
+						pushWhisper(v, params.freq, downmix(out, channels));
+					}
 				}
+				decodeLocalPager(pager, params, state, v, out, undefined);
 			}
-
-			decodeLocalPager(pager, params, state, v, out);
 
 			// Clean up RDS decoder when disabled
 			if ((!params.rds || params.mode !== 'wfm') && state.rdsDecoder) {
@@ -92,13 +104,16 @@ export function decodeLocalPager(
 	state: VfoState,
 	v: number,
 	out: Float32Array<ArrayBuffer>,
+	tag: PagerProtocol | undefined,
 ) {
-	// POCSAG, GSC and FLEX are peer pager protocols that run on the same NFM
-	// audio; any combination can be enabled on one VFO. Each branch owns its
-	// own decoder lifecycle (create / live-param update / teardown).
-	decodeLocalPocsag(pager, params, state, v, out);
-	decodeLocalGsc(pager, params, state, v, out);
-	decodeLocalFlex(pager, params, state, v, out);
+	// POCSAG, GSC and FLEX are peer pager protocols, each demodulated on its own
+	// RX-bandwidth leg in the DSP worker and delivered as a tagged audio buffer.
+	// `tag` names which leg this buffer belongs to; only that decoder processes
+	// it. An untagged call (the main VFO buffer) carries no samples to decode and
+	// is used only to run each branch's teardown when its protocol is disabled.
+	decodeLocalPocsag(pager, params, state, v, out, tag);
+	decodeLocalGsc(pager, params, state, v, out, tag);
+	decodeLocalFlex(pager, params, state, v, out, tag);
 }
 
 /** POCSAG decode branch (a peer of the GSC and FLEX branches). */
@@ -108,8 +123,9 @@ function decodeLocalPocsag(
 	state: VfoState,
 	v: number,
 	out: Float32Array<ArrayBuffer>,
+	tag: PagerProtocol | undefined,
 ) {
-	if (pager.pocsag && params.pocsag && params.mode === 'nfm') {
+	if (pager.pocsag && params.pocsag && params.mode === 'nfm' && tag === 'pocsag') {
 		if (!state.pocsagDecoder) {
 			state.pocsagDecoder = new POCSAGDecoder(
 				AUDIO_RATE,
@@ -149,8 +165,9 @@ function decodeLocalFlex(
 	state: VfoState,
 	v: number,
 	out: Float32Array<ArrayBuffer>,
+	tag: PagerProtocol | undefined,
 ) {
-	if (pager.flex && params.flex && params.mode === 'nfm') {
+	if (pager.flex && params.flex && params.mode === 'nfm' && tag === 'flex') {
 		if (!state.flexDecoder) {
 			state.flexDecoder = new FlexDecoder(
 				AUDIO_RATE,
@@ -186,8 +203,9 @@ function decodeLocalGsc(
 	state: VfoState,
 	v: number,
 	out: Float32Array<ArrayBuffer>,
+	tag: PagerProtocol | undefined,
 ) {
-	if (pager.gsc && params.gsc && params.mode === 'nfm') {
+	if (pager.gsc && params.gsc && params.mode === 'nfm' && tag === 'gsc') {
 		if (!state.gscDecoder) {
 			state.gscDecoder = new GSCDecoder(AUDIO_RATE, (gmsg) => {
 				pager.gsc?.(v, params.freq, gmsg);

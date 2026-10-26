@@ -80,6 +80,9 @@
 				:style="{ color: receiver.pocsagStatus[i].ber < 0.01 ? '#44cc44' : (receiver.pocsagStatus[i].ber < 0.05 ? '#ffcc44' : '#ff6644') }">
 				BER {{ (receiver.pocsagStatus[i].ber * 100).toFixed(1) }}%
 			</span>
+			<span v-else-if="receiver.pocsagStatus[i]?.lastBer != null" style="color:#666;">
+				BER {{ (receiver.pocsagStatus[i].lastBer * 100).toFixed(1) }}%
+			</span>
 		</div>
 
 		<!-- POCSAG codepage selector (per-VFO). Shown when POCSAG is enabled and has charsets. -->
@@ -128,6 +131,9 @@
 				:style="{ color: receiver.gscStatus[i].ber < 0.01 ? '#44cc44' : (receiver.gscStatus[i].ber < 0.05 ? '#ffcc44' : '#ff6644') }">
 				BER {{ (receiver.gscStatus[i].ber * 100).toFixed(1) }}%
 			</span>
+			<span v-else-if="receiver.gscStatus[i]?.lastBer != null" style="color:#666;">
+				BER {{ (receiver.gscStatus[i].lastBer * 100).toFixed(1) }}%
+			</span>
 		</div>
 
 		<UiFormRow class="full-checkbox-row" v-if="vfo.mode === 'nfm' && vfo.gsc">
@@ -161,6 +167,9 @@
 			<span v-if="receiver.flexStatus[i]?.ber != null"
 				:style="{ color: receiver.flexStatus[i].ber < 0.01 ? '#44cc44' : (receiver.flexStatus[i].ber < 0.05 ? '#ffcc44' : '#ff6644') }">
 				BER {{ (receiver.flexStatus[i].ber * 100).toFixed(1) }}%
+			</span>
+			<span v-else-if="receiver.flexStatus[i]?.lastBer != null" style="color:#666;">
+				BER {{ (receiver.flexStatus[i].lastBer * 100).toFixed(1) }}%
 			</span>
 			<span v-if="receiver.flexStatus[i]?.localId != null" style="color:#aaa;" title="Simulcast local channel ID / coverage zone">LID {{ receiver.flexStatus[i].localId }}<template v-if="receiver.flexStatus[i]?.coverageZone != null">/{{ receiver.flexStatus[i].coverageZone }}</template></span>
 			<span v-if="receiver.flexStatus[i]?.countryCode != null" style="color:#aaa;" title="Country code">CC {{ receiver.flexStatus[i].countryCode }}</span>

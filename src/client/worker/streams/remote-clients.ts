@@ -39,6 +39,7 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 */
 
 import type { VfoParams, RemoteClientState } from '@/worker/runtime/types';
+import type { PagerProtocol } from '@/worker/decoders/charsets';
 import { AUDIO_RATE } from '@/worker/runtime/constants';
 import { POCSAGDecoder } from '@/worker/decoders/pocsag';
 import { GSCDecoder } from '@/worker/decoders/golay';
@@ -232,7 +233,14 @@ function handleRemoteWorkerAudio(state: RemoteClientState, msg: DspAudio, backen
 		backend._remoteHostSquelchCb(clientId, state.squelchOpen.slice());
 	}
 	if (samples) {
-		backend._queueRemoteAudio(clientId, index, samples, msg.channels ?? 1);
+		if (msg.pager) {
+			// Pager-leg buffer at the protocol's own RX bandwidth: decode only,
+			// never queued for playback.
+			const params = state.params[index];
+			if (params) decodeRemotePager(backend, state, index, params, clientId, samples, msg.pager);
+		} else {
+			backend._queueRemoteAudio(clientId, index, samples, msg.channels ?? 1);
+		}
 	}
 }
 
@@ -372,10 +380,11 @@ function decodeRemotePager(
 	params: VfoParams,
 	clientId: string,
 	samples: Float32Array,
+	tag: PagerProtocol | undefined,
 ): void {
-	decodeRemotePocsag(backend, state, index, params, clientId, samples);
-	decodeRemoteGsc(backend, state, index, params, clientId, samples);
-	decodeRemoteFlex(backend, state, index, params, clientId, samples);
+	decodeRemotePocsag(backend, state, index, params, clientId, samples, tag);
+	decodeRemoteGsc(backend, state, index, params, clientId, samples, tag);
+	decodeRemoteFlex(backend, state, index, params, clientId, samples, tag);
 }
 
 function decodeRemotePocsag(
@@ -385,8 +394,9 @@ function decodeRemotePocsag(
 	params: VfoParams,
 	clientId: string,
 	samples: Float32Array,
+	tag: PagerProtocol | undefined,
 ): void {
-	if (backend._remoteHostPocsagCb && params.pocsag && params.mode === 'nfm') {
+	if (backend._remoteHostPocsagCb && params.pocsag && params.mode === 'nfm' && tag === 'pocsag') {
 		const dec = ensureRemotePocsagDecoder(backend._remoteHostPocsagCb, state, index, params, clientId);
 		dec.process(samples);
 		if (backend._remoteHostPocsagStatusCb) {
@@ -410,8 +420,9 @@ function decodeRemoteGsc(
 	params: VfoParams,
 	clientId: string,
 	samples: Float32Array,
+	tag: PagerProtocol | undefined,
 ): void {
-	if (backend._remoteHostGscCb && params.gsc && params.mode === 'nfm') {
+	if (backend._remoteHostGscCb && params.gsc && params.mode === 'nfm' && tag === 'gsc') {
 		const gdec = ensureRemoteGscDecoder(backend._remoteHostGscCb, state, index, params, clientId);
 		gdec.process(samples);
 		if (backend._remoteHostGscStatusCb) {
@@ -435,8 +446,9 @@ function decodeRemoteFlex(
 	params: VfoParams,
 	clientId: string,
 	samples: Float32Array,
+	tag: PagerProtocol | undefined,
 ): void {
-	if (backend._remoteHostFlexCb && params.flex && params.mode === 'nfm') {
+	if (backend._remoteHostFlexCb && params.flex && params.mode === 'nfm' && tag === 'flex') {
 		const fdec = ensureRemoteFlexDecoder(backend._remoteHostFlexCb, state, index, params, clientId);
 		fdec.process(samples);
 		if (backend._remoteHostFlexStatusCb) {
@@ -459,9 +471,11 @@ export function _queueRemoteAudio(this: Backend, clientId: string, index: number
 	const entry = state.audioQueues[index];
 	if (!entry) return;
 
-	// Run POCSAG + GSC decoding on the raw audio before mixing.
+	// The untagged main buffer carries no pager decode (that runs off the
+	// tagged per-protocol legs); run a teardown sweep so a decoder is released
+	// when its protocol is disabled.
 	const params = state.params[index];
-	if (params) decodeRemotePager(this, state, index, params, clientId, samples);
+	if (params) decodeRemotePager(this, state, index, params, clientId, samples, undefined);
 
 	// Muted VFOs still decode metadata, but their audio must not accumulate.
 	if (!params?.enabled) {

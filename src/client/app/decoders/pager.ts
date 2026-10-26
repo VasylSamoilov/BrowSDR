@@ -49,16 +49,17 @@ export function formatPagerExportLine(e: PagerLogEntry): string {
 	return `${head}${func}  TYPE:${e.type}  ${body}${alt}${dbg}`;
 }
 
-/** Apply the NFM-paging-friendly RX defaults a pager decoder wants on enable:
- * disable the speech low-pass (it rounds the FSK edges) and widen the bandwidth
- * for +/-4.5 kHz deviation plus sidebands. Visible, user-overridable settings;
- * left as-is on disable so the user keeps whatever they had. Shared by every
- * protocol toggle (POCSAG/GSC/FLEX). */
+/** Apply the NFM-paging-friendly RX default a pager decoder wants on enable:
+ * disable the speech low-pass (it rounds the FSK edges). The channel bandwidth
+ * is NOT forced here any more: each enabled pager is demodulated on its own
+ * channel leg at the protocol's RX bandwidth (see pager-bandwidth.ts), so the
+ * main VFO bandwidth stays the operator's own (voice) setting. Visible,
+ * user-overridable; left as-is on disable so the user keeps whatever they had.
+ * Shared by every protocol toggle (POCSAG/GSC/FLEX). */
 export function applyPagerRxDefaults(app: AppInstance, i: number, enabled: boolean): void {
 	const vfo = app.vfos[i];
 	if (enabled) {
 		vfo.lowPass = false;
-		if (vfo.bandwidth < 12500) vfo.bandwidth = 12500;
 	}
 	app.updateBackendVfoParams(i);
 }
