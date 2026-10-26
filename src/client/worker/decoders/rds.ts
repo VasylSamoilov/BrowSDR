@@ -273,6 +273,8 @@ function rdsChar(code: number, region: string): string {
 export class RDSDecoder {
 	private callback: (msg: RDSMessage) => void;
 	private region: string;
+	// Current group label injected into every callback as srcGroup
+	private currentGroup = '';
 
 	// 19 kHz pilot PLL — phasor rotation (zero trig calls per sample)
 	private phasorRe = 1;
@@ -369,7 +371,8 @@ export class RDSDecoder {
 	private eonMap: Map<number, { psChars: (string | null)[]; tp: boolean; ta: boolean; af: number[]; lastKey: string }> = new Map();
 
 	constructor(sampleRate: number, callback: (msg: RDSMessage) => void, region = 'eu') {
-		this.callback = callback;
+		// Wrap callback to auto-inject srcGroup from the current group being decoded
+		this.callback = (msg: RDSMessage) => callback({ srcGroup: this.currentGroup || undefined, ...msg });
 		this.region = region;
 
 		const pilotFreq = (2 * Math.PI * RDS_PILOT) / sampleRate;
@@ -581,11 +584,14 @@ export class RDSDecoder {
 		const tp        = ((blockB >> 10) & 1) === 1;
 		const pty       = (blockB >> 5) & 0x1f;
 
-		if (tp !== this.tp) { this.tp = tp; this.callback({ tp }); }
+		// Track current group label for callback metadata
+		this.currentGroup = `${groupType}${version === 0 ? 'A' : 'B'}`;
+
+		if (tp !== this.tp) { this.tp = tp; this.callback({ tp, srcGroup: this.currentGroup }); }
 		if (pty !== this.pty) {
 			this.pty = pty;
 			const labels = this.region === 'na' ? PTY_LABELS_NA : PTY_LABELS_EU;
-			this.callback({ pty, ptyLabel: labels[pty] || '' });
+			this.callback({ pty, ptyLabel: labels[pty] || '', srcGroup: this.currentGroup });
 		}
 
 		switch (groupType) {
@@ -847,7 +853,7 @@ export class RDSDecoder {
 			this.acceptChar(seg*2+1, d&0xff,      this.rtChars, this.rtStatus, q);
 		}
 		const rt = this.buildRT();
-		if (rt && rt.length >= 4 && rt !== this.lastRt) { this.lastRt = rt; this.callback({ rt, rtCharStatus: this.buildStatus(this.rtChars, this.rtStatus) }); }
+		if (rt && rt.length >= 4 && rt !== this.lastRt) { this.lastRt = rt; this.callback({ rt, rtCharStatus: this.buildStatus(this.rtChars, this.rtStatus), srcAbFlag: abFlag }); }
 	}
 
 	// ── Group 3A: ODA application identification ─────────────────
@@ -899,7 +905,7 @@ export class RDSDecoder {
 		if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); this.acceptChar(seg*4+2, (d>>8)&0xff, this.ptynChars, this.ptynStatus, q); this.acceptChar(seg*4+3, d&0xff, this.ptynChars, this.ptynStatus, q); }
 		if (!this.ptynChars.includes(null)) {
 			const ptyn = (this.ptynChars as string[]).join('').trimEnd();
-			if (ptyn && ptyn !== this.lastPtyn) { this.lastPtyn = ptyn; this.callback({ ptyn, ptynCharStatus: [...this.ptynStatus] }); }
+			if (ptyn && ptyn !== this.lastPtyn) { this.lastPtyn = ptyn; this.callback({ ptyn, ptynCharStatus: [...this.ptynStatus], srcAbFlag: this.ptynAbFlag }); }
 		}
 	}
 

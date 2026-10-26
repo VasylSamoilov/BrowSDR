@@ -129,7 +129,9 @@ export interface RDSMessage {
 	// Group 4A (CT)
 	ct?: string;            // Clock time formatted "YYYY-MM-DD HH:MM" local
 	ctUtcOffset?: number;   // UTC offset in half-hours (signed)
-	// Group 5-9, 11-13 ODA data — raw for paging / TMC consumers
+	// Source metadata -- attached to every callback so the log can show origin
+	srcGroup?: string;   // e.g. "0A", "2A", "2B", "10A", "14B"
+	srcAbFlag?: number;  // A/B flag value (0 or 1) when present, -1 or absent otherwise
 	odaData?: { group: number; version: number; b: number; c: number; d: number };
 	// Group 10A (PTYN) — already declared above with ptynCharStatus
 	// Group 14A (EON)

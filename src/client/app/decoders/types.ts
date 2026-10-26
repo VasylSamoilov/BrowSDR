@@ -111,4 +111,6 @@ export interface RdsLogEntry {
 	value: string;
 	freq: string;
 	vfoIndex: number;
+	group?: string;    // source group type e.g. "2A", "0A", "10A"
+	abFlag?: number;   // A/B flag value (0 or 1) when relevant
 }

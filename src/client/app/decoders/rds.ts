@@ -68,21 +68,21 @@ export const rdsMethods = {
 			stn.ps = msg.ps;
 			stn.psCharStatus = msg.psCharStatus ?? [];
 			stn.freq = freq;
-			this.rds.log.push({ time, field: 'PS', value: msg.ps, freq, vfoIndex });
+			this.rds.log.push({ time, field: 'PS', value: msg.ps, freq, vfoIndex, group: msg.srcGroup });
 		}
 		if (msg.rt !== undefined) {
 			stn.rt = msg.rt;
 			stn.rtCharStatus = msg.rtCharStatus ?? [];
-			this.rds.log.push({ time, field: 'RT', value: msg.rt, freq, vfoIndex });
+			this.rds.log.push({ time, field: 'RT', value: msg.rt, freq, vfoIndex, group: msg.srcGroup, abFlag: msg.srcAbFlag });
 		}
 		if (msg.ptyn !== undefined) {
 			stn.ptyn = msg.ptyn;
-			this.rds.log.push({ time, field: 'PTYN', value: msg.ptyn, freq, vfoIndex });
+			this.rds.log.push({ time, field: 'PTYN', value: msg.ptyn, freq, vfoIndex, group: msg.srcGroup, abFlag: msg.srcAbFlag });
 		}
 		if (msg.ct !== undefined) {
 			stn.ct = msg.ct;
 			stn.ctUtcOffset = msg.ctUtcOffset ?? null;
-			this.rds.log.push({ time, field: 'CT', value: msg.ct, freq, vfoIndex });
+			this.rds.log.push({ time, field: 'CT', value: msg.ct, freq, vfoIndex, group: msg.srcGroup });
 		}
 		if (msg.pty !== undefined) { stn.pty = msg.pty; stn.ptyLabel = msg.ptyLabel || ''; }
 		if (msg.tp !== undefined) stn.tp = msg.tp;
@@ -96,7 +96,7 @@ export const rdsMethods = {
 		if (msg.pagingOpc !== undefined) {
 			stn.pagingOpc = msg.pagingOpc;
 			stn.pagingPac = msg.pagingPac ?? 0;
-			this.rds.log.push({ time, field: 'PAGING-ID', value: `OPC=${msg.pagingOpc} PAC=${msg.pagingPac ?? 0}${msg.pagingPac === 0 ? ' (all areas)' : ''}`, freq, vfoIndex });
+			this.rds.log.push({ time, field: 'PAGING-ID', value: `OPC=${msg.pagingOpc} PAC=${msg.pagingPac ?? 0}${msg.pagingPac === 0 ? ' (all areas)' : ''}`, freq, vfoIndex, group: msg.srcGroup });
 		}
 		if (msg.ewsChannel !== undefined) {
 			stn.ewsChannel = msg.ewsChannel;
