@@ -522,42 +522,42 @@ export class RDSDecoder {
 			}
 			this.prevBb = bb;
 
-			// Integrate-and-dump: accumulate bb * clock_sign into integrator.
-			// The clock sign flips at each half-symbol boundary, making the
-			// integrator accumulate +bb for one half and -bb for the next.
-			// At the dump edge (sign flip) the accumulated sum is the symbol energy.
-			const clockSign = this.clockPhase < symbolPeriod / 2 ? 1 : -1;
-			this.integrator += bb * clockSign;
+			// Integrate-and-dump per half-symbol period.
+			// Simply accumulate bb; dump at each half-symbol clock edge.
+			// Two consecutive dumps form one biphase symbol pair.
+			this.integrator += bb;
 
 			if (this.clockPhase >= symbolPeriod / 2 && prevPhase < symbolPeriod / 2) {
-				// Half-symbol boundary: track which half-period we're in for parity
-				const parity = this.symbolIndex & 1;
-				const energy = this.integrator * this.integrator;
-				this.pairEnergy[parity] += energy;
+				// Dump: this half-period integral is complete
+				const dump = this.integrator;
+				this.integrator = 0;
 
-				// Dump at full symbol (every 2 half-periods) and make bit decision
+				// Track biphase frame parity energy (which half-period has more energy)
+				const parity = this.symbolIndex & 1;
+				this.pairEnergy[parity] += dump * dump;
+
+				// Symbol decision on the aligned half-period.
+				// Per osmocom rds_biphase_decode:
+				//   symbol_sum = current_dump + prev_dump
+				//   differential bit = (sign(symbol_sum) != last_sign) ? 1 : 0
 				if (parity === this.pairParity) {
-					// Biphase: symbol decision = sum of this half + previous half (integrate-and-dump)
-					const symbolSum = this.integrator + this.prevIntegral;
-					// Differential decode: bit = current symbol sign != previous symbol sign
-					const curSign = this.integrator >= 0 ? 1 : -1;
-					const prevSign = this.prevSymSign;
-					const bit = curSign !== prevSign ? 1 : 0;
+					const symbolSum = dump + this.prevIntegral;
+					const curSign = symbolSum >= 0 ? 1 : -1;
+					const bit = curSign !== this.prevSymSign ? 1 : 0;
 					this.prevSymSign = curSign;
 					this.processBit(bit);
-					void symbolSum;
 				}
-				this.prevIntegral = this.integrator;
-				this.integrator = 0;
+				this.prevIntegral = dump;
 				this.symbolIndex++;
 
 				// Every 800 half-periods re-evaluate biphase frame alignment.
-				// Switch silently -- do NOT lose sync.
+				// Switch silently without losing sync.
 				if ((this.symbolIndex & 799) === 0) {
 					const nextParity = this.pairEnergy[0] > this.pairEnergy[1] ? 0 : 1;
 					if (nextParity !== this.pairParity) {
 						this.pairParity = nextParity;
 						this.prevSymSign = 0;
+						this.prevIntegral = 0;
 					}
 					this.pairEnergy.fill(0);
 				}
