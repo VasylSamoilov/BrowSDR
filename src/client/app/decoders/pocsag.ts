@@ -31,7 +31,10 @@ export const pocsagMethods = {
 	},
 	_onPocsagStatus(this: AppInstance, vfoIndex: number, _freqMhz: number, status: POCSAGStatus) {
 		if (!this.pocsagStatus) this.pocsagStatus = [];
-		this.pocsagStatus[vfoIndex] = status;
+		// Carry last-known BER forward so the UI can dim it during hunt.
+		const prev = this.pocsagStatus[vfoIndex];
+		const lastBer = status.ber != null ? status.ber : (prev as (POCSAGStatus & { lastBer?: number }) | null)?.lastBer ?? null;
+		this.pocsagStatus[vfoIndex] = Object.assign(status, { lastBer });
 	},
 	_onPocsagMessage(this: AppInstance, vfoIndex: number, freqMhz: number, msg: POCSAGMessage) {
 		const time = new Date().toLocaleTimeString();

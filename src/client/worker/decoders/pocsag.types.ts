@@ -60,3 +60,18 @@ export interface POCSAGStatus {
 	 * in progress. Mirrors the FLEX pipeline-stage chip. */
 	stage?: 'batch' | 'page' | null;
 }
+
+/** Narrow structural view of the decoder that the dev-only diagnostics read
+ * (ring buffers + lock state). Lives here so pocsag-diag.ts carries no
+ * interface of its own (architecture/type-files rule). */
+export interface PocsagDiagHost {
+	baudRate: number;
+	inverted: boolean;
+	resyncBits: number;
+	batchCwIdx: number;
+	diagSoft: Float32Array;
+	diagPhase: Float32Array;
+	diagRaw: Float32Array;
+	diagSoftPos: number;
+	_eccCorrect(val: number): { cw: number; errors: number };
+}
