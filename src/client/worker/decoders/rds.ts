@@ -544,7 +544,7 @@ export class RDSDecoder {
 
 		switch (groupType) {
 			case 0:  this.decodeGroup0(version, blockB, bv); break;
-			case 1:  if (version === 0) this.decodeGroup1A(blockB, bv); break;
+			case 1:  if (version === 0) this.decodeGroup1A(blockB, bv); else this.decodeGroup1B(blockB, bv); break;
 			case 2:  this.decodeGroup2(version, blockB, bv); break;
 			case 3:  if (version === 0) this.decodeGroup3A(blockB, bv); break;
 			case 4:  if (version === 0) this.decodeGroup4A(bv); break;
@@ -599,43 +599,124 @@ export class RDSDecoder {
 	}
 
 	// ── Group 1A: ECC, LIC, TMC flag, PIN ───────────────────────
+	// 1A paging state (suppress duplicate callbacks)
+	private rpc = -1;
+	private la = false;
+	private pagingOpc = -1;
+	private pagingPac = -1;
+	private ewsChannel = -1;
+	private broadcasterData = -1;
+
 	private decodeGroup1A(blockB: number, bv: boolean[]): void {
-		void blockB;
-		// PIN (Programme Item Number) in block D
+		// Block B bits [4:0]: Radio Paging Codes (EN 50067 Annex M, M.2.1.1.2)
+		//   bits [4:2]: transmitter network group designation (0=no paging)
+		//   bits [1:0]: battery-saving interval sync
+		const rpc = blockB & 0x1f;
+		if (rpc !== this.rpc) {
+			this.rpc = rpc;
+			this.callback({
+				rpc,
+				rpcGroupDesig: (rpc >> 2) & 0x7,
+				rpcBattSync:    rpc & 0x3,
+			});
+		}
+
+		// Block D: Programme Item Number (day[15:11] hour[10:6] minute[5:0])
 		if (bv[3]) {
 			const pin = this.blocks[3];
-			if (pin !== 0) {
-				this.callback({
-					pin,
-					pinDay:    (pin >> 11) & 0x1f,
-					pinHour:   (pin >> 6)  & 0x1f,
-					pinMinute:  pin        & 0x3f,
-				});
-			}
+			const pinDay = (pin >> 11) & 0x1f;
+			// pinDay=0 means no valid PIN is being transmitted (spec note 3, page 24)
+			this.callback({ pin, pinDay, pinHour: (pin >> 6) & 0x1f, pinMinute: pin & 0x3f });
 		}
+
 		if (!bv[2]) return;
 		const c = this.blocks[2];
+
+		// Block C bit [15]: Linkage Actuator (LA) -- present on ALL variants
+		const la = (c >> 15) & 1;
+		if ((la !== 0) !== this.la) {
+			this.la = la !== 0;
+			this.callback({ la: this.la });
+		}
+
+		// Block C bits [14:12]: variant code
 		const variant = (c >> 12) & 0x7;
+		const payload = c & 0x0fff;
+
 		switch (variant) {
-			case 0: { // ECC
-				const ecc = c & 0xff;
+			case 0: {
+				// ECC (Extended Country Code): bits [7:0]
+				// OPC (Operator Code for enhanced paging): bits [11:8]
+				const ecc = payload & 0xff;
+				const opc = (payload >> 8) & 0xf;
 				if (ecc !== this.ecc) {
 					this.ecc = ecc;
-					this.callback({ ecc, countryName: eccToCountry(this.pi, ecc) });
+					this.callback({ ecc, opc, countryName: eccToCountry(this.pi, ecc) });
 				}
 				break;
 			}
-			case 1: // TMC service identification
-				this.callback({ hasTmc: true });
+			case 1: {
+				// TMC identification: 12-bit TMC service ID
+				const tmcId = payload;
+				this.callback({ hasTmc: true, tmcId });
 				break;
-			case 3: { // LIC
-				const lic = c & 0xff;
+			}
+			case 2: {
+				// Paging identification (EN 50067 M.3.2.4.2)
+				//   bits [11:8]: OPC (Operator Code, 0=no enhanced paging)
+				//   bits [7:6]:  reserved (zero)
+				//   bits [5:0]:  PAC (Paging Area Code, 0=all areas)
+				const opc = (payload >> 8) & 0xf;
+				const pac = payload & 0x3f;
+				if (opc !== this.pagingOpc || pac !== this.pagingPac) {
+					this.pagingOpc = opc;
+					this.pagingPac = pac;
+					this.callback({ pagingOpc: opc, pagingPac: pac });
+				}
+				break;
+			}
+			case 3: {
+				// Language Identification Code: bits [7:0]
+				const lic = payload & 0xff;
 				if (lic !== this.lic) {
 					this.lic = lic;
 					this.callback({ lic, languageName: LIC_NAMES[lic] || 'Unknown' });
 				}
 				break;
 			}
+			case 4:
+			case 5:
+				// Not assigned (IEC 62106 Table 9, variants 4-5)
+				break;
+			case 6: {
+				// Broadcaster use: 12-bit broadcaster-defined data
+				const bd = payload;
+				if (bd !== this.broadcasterData) {
+					this.broadcasterData = bd;
+					this.callback({ broadcasterData: bd });
+				}
+				break;
+			}
+			case 7: {
+				// EWS (Emergency Warning System) channel ID: 12-bit
+				const ews = payload;
+				if (ews !== this.ewsChannel) {
+					this.ewsChannel = ews;
+					this.callback({ ewsChannel: ews });
+				}
+				break;
+			}
+		}
+	}
+
+	private decodeGroup1B(blockB: number, bv: boolean[]): void {
+		// Block B bits [4:0]: spare bits (reserved for future use, should be 0)
+		// Block D: PIN -- same layout as 1A
+		void blockB;
+		if (bv[3]) {
+			const pin = this.blocks[3];
+			const pinDay = (pin >> 11) & 0x1f;
+			this.callback({ pin, pinDay, pinHour: (pin >> 6) & 0x1f, pinMinute: pin & 0x3f });
 		}
 	}
 

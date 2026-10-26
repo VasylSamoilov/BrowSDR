@@ -3,8 +3,12 @@ import type { AppInstance } from '@/app/core/receiver.types';
 
 const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false, ta: false, freq: '',
 	ptyn: '', ct: '', ctUtcOffset: 0 as number | null, ecc: -1, countryName: '', lic: -1, languageName: '',
-	af: [] as number[], hasTmc: false, rtPlusItem1: '', rtPlusItem1Tag: 0, rtPlusItem2: '', rtPlusItem2Tag: 0,
+	af: [] as number[], hasTmc: false, tmcId: -1, rtPlusItem1: '', rtPlusItem1Tag: 0, rtPlusItem2: '', rtPlusItem2Tag: 0,
 	psCharStatus: [] as number[], rtCharStatus: [] as number[],
+	// Group 1A extras
+	la: false, opc: 0, rpc: 0, rpcGroupDesig: 0, rpcBattSync: 0,
+	pagingOpc: -1, pagingPac: -1, ewsChannel: -1, broadcasterData: -1,
+	pinDay: 0, pinHour: 0, pinMinute: 0,
 };
 
 export const rdsMethods = {
@@ -71,10 +75,29 @@ export const rdsMethods = {
 		if (msg.pty !== undefined) { stn.pty = msg.pty; stn.ptyLabel = msg.ptyLabel || ''; }
 		if (msg.tp !== undefined) stn.tp = msg.tp;
 		if (msg.ta !== undefined) stn.ta = msg.ta;
-		if (msg.ecc !== undefined) { stn.ecc = msg.ecc; stn.countryName = msg.countryName || ''; }
+		if (msg.ecc !== undefined) { stn.ecc = msg.ecc; stn.countryName = msg.countryName || ''; if (msg.opc !== undefined) stn.opc = msg.opc; }
 		if (msg.lic !== undefined) { stn.lic = msg.lic; stn.languageName = msg.languageName || ''; }
 		if (msg.af !== undefined) stn.af = msg.af;
-		if (msg.hasTmc) stn.hasTmc = true;
+		if (msg.hasTmc) { stn.hasTmc = true; if (msg.tmcId !== undefined) stn.tmcId = msg.tmcId; }
+		if (msg.la !== undefined) stn.la = msg.la;
+		if (msg.rpc !== undefined) { stn.rpc = msg.rpc; stn.rpcGroupDesig = msg.rpcGroupDesig ?? 0; stn.rpcBattSync = msg.rpcBattSync ?? 0; }
+		if (msg.pagingOpc !== undefined) {
+			stn.pagingOpc = msg.pagingOpc;
+			stn.pagingPac = msg.pagingPac ?? 0;
+			this.rds.log.push({ time, field: 'PAGING-ID', value: `OPC=${msg.pagingOpc} PAC=${msg.pagingPac ?? 0}${msg.pagingPac === 0 ? ' (all areas)' : ''}`, freq, vfoIndex });
+		}
+		if (msg.ewsChannel !== undefined) {
+			stn.ewsChannel = msg.ewsChannel;
+			this.rds.log.push({ time, field: 'EWS', value: `Channel ${msg.ewsChannel}`, freq, vfoIndex });
+		}
+		if (msg.broadcasterData !== undefined) {
+			stn.broadcasterData = msg.broadcasterData;
+		}
+		if (msg.pin !== undefined && msg.pinDay !== undefined) {
+			stn.pinDay = msg.pinDay;
+			stn.pinHour = msg.pinHour ?? 0;
+			stn.pinMinute = msg.pinMinute ?? 0;
+		}
 		if (msg.rtPlusItem1 !== undefined) {
 			stn.rtPlusItem1 = msg.rtPlusItem1 || '';
 			stn.rtPlusItem1Tag = msg.rtPlusItem1Tag || 0;

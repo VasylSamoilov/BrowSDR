@@ -91,10 +91,25 @@ export interface RDSMessage {
 	lic?: number;           // Language Identification Code
 	languageName?: string;  // Resolved LIC name
 	pin?: number;           // Programme Item Number (scheduled time, raw 16-bit)
-	pinDay?: number;        // PIN decoded day-of-month (1-31)
+	pinDay?: number;        // PIN decoded day-of-month (1-31, 0 = no valid PIN)
 	pinHour?: number;       // PIN decoded hour (0-23)
 	pinMinute?: number;     // PIN decoded minute (0-59)
 	hasTmc?: boolean;       // TMC service detected (Group 1A variant 1)
+	tmcId?: number;         // 12-bit TMC service identifier (variant 1)
+	// Group 1A variant 0 -- ECC block extras
+	la?: boolean;           // Linkage Actuator (block C bit 15, all variants)
+	opc?: number;           // Operator Code from ECC variant (bits 11:8), non-zero = enhanced paging
+	// Group 1A variant 2 -- Paging identification (OPC + PAC)
+	pagingOpc?: number;     // Operator Code (bits 11:8 of variant 2 payload)
+	pagingPac?: number;     // Paging Area Code (bits 5:0 of variant 2 payload, 0=all areas)
+	// Group 1A variant 6 -- Broadcaster use
+	broadcasterData?: number;  // 12-bit broadcaster-defined data
+	// Group 1A variant 7 -- EWS
+	ewsChannel?: number;    // Emergency Warning System channel ID (12-bit)
+	// Group 1A block B -- Radio Paging Codes (EN 50067 Annex M)
+	rpc?: number;           // Full 5-bit RPC value (bits 4:0 of block B)
+	rpcGroupDesig?: number; // Transmitter network group designation (bits 4:2, 0=no paging)
+	rpcBattSync?: number;   // Battery-saving interval sync (bits 1:0)
 	// Group 3A (ODA)
 	odaAid?: number;        // Open Data Application ID registered on a group
 	odaGroup?: number;      // Group number carrying this ODA (0-15)

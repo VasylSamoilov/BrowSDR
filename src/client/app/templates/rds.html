@@ -29,11 +29,25 @@
 						<span class="rds-country" v-if="stn.countryName && stn.countryName !== '--'" :title="'ECC 0x' + stn.ecc.toString(16).toUpperCase()">{{ stn.countryName }}</span>
 						<span class="rds-pty" v-if="stn.ptyLabel">{{ stn.ptyLabel }}</span>
 						<span class="rds-language" v-if="stn.languageName && stn.languageName !== 'Unknown'" :title="'LIC ' + stn.lic">{{ stn.languageName }}</span>
-						<span class="rds-flags" v-if="stn.tp || stn.ta || stn.hasTmc">
+						<span class="rds-flags" v-if="stn.tp || stn.ta || stn.hasTmc || stn.ewsChannel > 0 || stn.rpcGroupDesig > 0 || stn.pagingOpc >= 0">
 							<span v-if="stn.tp" class="rds-flag">TP</span>
 							<span v-if="stn.ta" class="rds-flag rds-ta">TA</span>
-							<span v-if="stn.hasTmc" class="rds-flag rds-tmc">TMC</span>
+							<span v-if="stn.la" class="rds-flag rds-la" title="Linkage Actuator active">LA</span>
+							<span v-if="stn.hasTmc" class="rds-flag rds-tmc" :title="stn.tmcId >= 0 ? 'TMC ID: 0x' + stn.tmcId.toString(16).toUpperCase() : 'TMC'">TMC</span>
+							<span v-if="stn.ewsChannel > 0" class="rds-flag rds-ews" :title="'EWS channel ' + stn.ewsChannel">EWS</span>
+							<span v-if="stn.rpcGroupDesig > 0" class="rds-flag rds-paging"
+								:title="'Radio Paging: network group ' + stn.rpcGroupDesig + ', batt-sync ' + stn.rpcBattSync">
+								RP
+							</span>
+							<span v-if="stn.pagingOpc >= 0" class="rds-flag rds-epp"
+								:title="'Enhanced Paging: OPC=' + stn.pagingOpc + ' PAC=' + stn.pagingPac + (stn.pagingPac === 0 ? ' (all areas)' : '')">
+								EPP
+							</span>
 						</span>
+					<div class="rds-pin" v-if="stn.pinDay > 0" style="font-size:10px;opacity:0.55;"
+						:title="'Programme Item Number: scheduled broadcast time'">
+						📅 PIN: day {{ stn.pinDay }} {{ String(stn.pinHour).padStart(2,'0') }}:{{ String(stn.pinMinute).padStart(2,'0') }}
+					</div>
 					</div>
 					<div class="rds-rt" v-if="stn.rt"><span
 						v-for="(ch, ci) in stn.rt.split('')" :key="ci"
