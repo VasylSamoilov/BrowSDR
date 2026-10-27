@@ -37,11 +37,15 @@ export class FlexDecoder {
 			onLock: (locked: boolean) => {
 				// Reset BER and network time when lock is lost so hunt state
 				// reports null and stale time from the previous TX doesn't persist.
-				// Clear sync event on both transitions so it never persists.
-				this.lastSyncEvent = null;
 				if (!locked) {
+					// Keep ERS event so badge stays red while the burst continues;
+					// clear non-ERS events so a stale codeword doesn't linger.
+					if (!this.lastSyncEvent?.ers) this.lastSyncEvent = null;
 					this.frames.resetBer();
 					this.frames.resetNet();
+				} else {
+					// Real frame locked — clear any ERS label.
+					this.lastSyncEvent = null;
 				}
 			},
 			onMode: (mode: FlexMode, polarity: number) => {

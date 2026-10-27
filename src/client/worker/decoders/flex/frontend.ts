@@ -30,7 +30,7 @@ import type { FlexMode, FlexFrontendEvents, FlexFiw, FlexPhaseData } from './typ
 
 // Dense demodulator diagnostics: per-symbol DC/envelope/PLL, lock/unlock,
 // FIW results and state transitions. Gated on DEV so zero cost in prod.
-const FLEX_DEMOD_DIAG = import.meta.env.DEV;
+const FLEX_DEMOD_DIAG = false;
 
 // -- FLEX sync codes (frame.h FLEX_SYNC_Ax, the inverted upper-16 outer code) --
 const FLEX_SYNC_A1 = 0x870c; // 1600bps/2FSK
@@ -437,6 +437,7 @@ export class FlexFrontend {
 	private setLocked(locked: boolean): void {
 		if (this.pllLocked === locked) return;
 		this.pllLocked = locked;
+		if (!locked) this.ersReported = false; // re-arm: next ERS burst is reportable
 		if (FLEX_DEMOD_DIAG) console.log(
 			`[FLEX ${locked ? 'LOCK' : 'UNLOCK'}] dc=${this.pllZero.toFixed(4)} env=${this.pllEnvelope.toFixed(4)} baud=${this.baud} state=${this.rxState}`
 		);
@@ -835,14 +836,13 @@ export class FlexFrontend {
 		if (!entry) return; // unknown 16-bit code -> not recognized, stay silent
 
 		if (entry.ers) {
-			// Report once per burst; the burst repeats Ar continuously, so
-			// suppress until a real frame re-arms the latch.
-			if (!this.ersReported) {
-				this.ersReported = true;
-				this.ev.onSyncCode?.({ code: finalSync, label: entry.label, ers: true, polarity: this.polarity });
-			}
-			// React to ERS: re-synchronize. Drop lock and reset so the real
-			// frame that follows the burst re-acquires from its S1 preamble.
+			// ERS: fire event on every Ar frame so lastSyncEvent.ts stays fresh
+			// and the UI badge holds ERS for the duration of the burst.
+			// ersReported is still set (for logging dedup in the app layer) but
+			// no longer gates the event — re-arms on each unlock via setLocked.
+			this.ev.onSyncCode?.({ code: finalSync, label: entry.label, ers: true, polarity: this.polarity });
+			this.ersReported = true;
+			// Drop lock per spec §3.2.1: pager must re-synchronize from the burst.
 			this.setLocked(false);
 			return;
 		}
