@@ -354,7 +354,7 @@ export class RDSDecoder {
 	private clockPhase = 0;
 	private symbolIndex = 0;
 	private pairEnergy = [0, 0];
-	private pairParity = -1;
+	private pairParity = 0;  // start decoding immediately; self-corrects after 800 half-periods
 
 	// Block assembly
 	private shiftReg = 0;
@@ -516,40 +516,40 @@ export class RDSDecoder {
 			if (this.scStep > maxStep) this.scStep = maxStep;
 			if (this.scStep < minStep) this.scStep = minStep;
 
-			// When Costas PLL is locked, data is on the I axis
-			const bb = filtI;
+			// When Costas PLL is locked, data is on the I axis.
+			// Use simple differential detection: sign changes = bits.
+			// Sample at half-symbol intervals (symbolPeriod = samplesPerBit/2)
 			const symbolPeriod = this.samplesPerBit / 2;
 
-			// Bit clock oscillator (free-running at 1187.5 Hz, independent of subcarrier PLL)
+			// Bit clock oscillator free-running at 1187.5 Hz
 			this.clockPhase += 1;
-			// Clock phase recovery: nudge toward zero-crossings of baseband signal
-			if ((bb > 0) !== (this.prevBb > 0)) {
-				// Osmocom: d_cphi = fmod(clock_phi, PI); if >= PI/2 subtract PI; nudge by 0.005
+			// Nudge clock toward zero-crossings of filtI
+			if ((filtI > 0) !== (this.prevBb > 0)) {
 				const d = this.clockPhase % symbolPeriod;
 				const adj = d >= symbolPeriod / 2 ? d - symbolPeriod : d;
 				this.clockPhase -= 0.005 * adj;
 			}
-			this.prevBb = bb;
+			this.prevBb = filtI;
 			if (this.clockPhase >= symbolPeriod) this.clockPhase -= symbolPeriod;
 			if (this.clockPhase < 0) this.clockPhase += symbolPeriod;
 
-			// Coherent integrate-and-dump: multiply by square-wave clock (+1 first half, -1 second half)
-			// This makes both halves of a biphase symbol contribute constructively.
+			// loClock square wave: +1 for first half, -1 for second half of symbol
 			const loClock = this.clockPhase < symbolPeriod / 2 ? 1 : -1;
-			this.integrator += bb * loClock;
 
-			// Dump when clock edge occurs (loClock sign change)
+			// Coherent integrate-and-dump: accumulate filtI * loClock
+			this.integrator += filtI * loClock;
+
+			// Dump on clock edge (loClock sign change)
 			if (loClock !== this.prevLoClock) {
 				const dump = this.integrator;
 				this.integrator = 0;
 
-				// Biphase frame: track energy in even/odd half-periods
+				// Biphase frame parity tracking
 				const parity = this.symbolIndex & 1;
 				this.pairEnergy[parity] += dump * dump;
 
-				// Biphase decode (per osmocom rds_biphase_decode):
-				//   symbolSum = current_dump + prev_dump
-				//   bit = sign(symbolSum) changed since last symbol
+				// Biphase decode: symbolSum = current_dump + prev_dump
+				// bit = sign(symbolSum) changed since last symbol
 				if (parity === this.pairParity) {
 					const symbolSum = dump + this.prevIntegral;
 					const curSign = symbolSum >= 0 ? 1 : -1;
@@ -560,7 +560,7 @@ export class RDSDecoder {
 				this.prevIntegral = dump;
 				this.symbolIndex++;
 
-				// Re-evaluate biphase frame parity silently every 800 half-periods
+				// Re-evaluate biphase frame parity every 800 half-periods
 				if ((this.symbolIndex & 799) === 0) {
 					const nextParity = this.pairEnergy[0] > this.pairEnergy[1] ? 0 : 1;
 					if (nextParity !== this.pairParity) {
@@ -1246,7 +1246,7 @@ export class RDSDecoder {
 		this.pilotMixI = 0; this.pilotPower = 0; this.pilotBpf.reset();
 		this.clockPhase = 0; this.prevBb = 0;
 		this.integrator = 0; this.prevIntegral = 0; this.prevSymSign = 0; this.prevLoClock = 1;
-		this.symbolIndex = 0; this.pairEnergy.fill(0); this.pairParity = -1;
+		this.symbolIndex = 0; this.pairEnergy.fill(0); this.pairParity = 0;
 		this.nbUnsync = 0;
 		// Reset BER and pilot but keep them across reset (station re-tune)
 		this.berHistory.fill(1); this.berHead = 0; this.berSum = this.BER_WINDOW;
