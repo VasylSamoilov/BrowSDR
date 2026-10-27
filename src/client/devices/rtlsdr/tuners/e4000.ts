@@ -25,7 +25,6 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 import type { RtlCom } from '@/devices/rtlsdr/usb';
 
 // ── E4000 Tuner ───────────────────────────────────────────────────
-// Ported from tuner_e4k.c (Harald Welte / Sylvain Munaut / GPL-2.0)
 export const E4K_I2C_ADDR = 0xc8;
 export const E4K_CHECK_ADDR = 0x02;
 export const E4K_CHECK_VAL = 0x40;

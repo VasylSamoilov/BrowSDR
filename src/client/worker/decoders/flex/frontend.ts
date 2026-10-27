@@ -502,7 +502,6 @@ export class FlexFrontend {
 	/**
 	 * SYNC1 handling: accumulate raw (non-polarity-corrected) bits into the
 	 * 64-bit sync register, detect the sync marker, then after 16 more symbols
-	 * complete inv.A and validate via combined A/inv.A BCH correction. Port of
 	 * the SYNC1 (preamble) state.
 	 */
 	private handleSync1(sym: number): void {

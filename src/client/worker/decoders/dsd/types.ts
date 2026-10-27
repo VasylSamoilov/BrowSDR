@@ -1,6 +1,5 @@
 /*
  * DSD (Digital Speech Decoder) status and sync types.
- * Ported from SDR++ Brown ch_extravhf_decoder.
  *
  * Original DSD source: https://github.com/szechyjs/dsd
  * Copyright (C) 2010 DSD Author (ISC License)

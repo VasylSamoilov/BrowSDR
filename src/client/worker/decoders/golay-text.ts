@@ -2,7 +2,6 @@
  * GSC message text codec: the Rep. 900-2 alpha (Table VI) and numeric
  * (Table VII) character tables, per-symbol decode, output rendering, the
  * block-to-text builders (which carry per-character source-block indices for
- * FEC colour-coding), and the alpha/numeric discriminate scoring (a port of
  * osmocom golay.c gsc_score_alpha / gsc_score_numeric). Extracted from golay.ts
  * to keep the decoder state machine under the file-size limit.
  */

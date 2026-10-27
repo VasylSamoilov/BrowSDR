@@ -1,6 +1,5 @@
 /*
  * DSD DSP front-end: RRC filter, clock recovery, and 4-FSK slicer.
- * Ported from SDR++ Brown ch_extravhf_decoder.
  */
 
 import { DSD_SYMBOL_RATE, DSD_IF_RATE, SLICER_MID_FACTOR } from './constants';

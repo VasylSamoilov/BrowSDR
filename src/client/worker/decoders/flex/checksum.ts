@@ -1,6 +1,5 @@
 /**
  * FLEX alpha per-fragment K checksum (ARIB STD-43A 3.10.1.3). Split out of
- * frame.ts; a faithful port of the osmocom / multimon-ng K-sum.
  */
 
 const FLEX_WORDS_PER_FRAME = 88;

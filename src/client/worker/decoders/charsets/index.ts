@@ -13,7 +13,6 @@ export const CHARSETS: CharsetRegistry = {
 	pocsag: POCSAG_CHARSETS,
 	gsc: [], // GSC is default-only (single Table VII alphabet); no codepages.
 	// FLEX: generic ASCII + the Motorola Linguist national/script codepages
-	// (ported from osmocom-analog), plus a Kanji identity. The Kanji entry is
 	// not a glyph table: FLEX carries no on-wire signal that a payload is 16-bit
 	// Shift-JIS, so Kanji is a user-selected charset that switches alpha
 	// decoding (16-bit chars) and rendering -- selectable like any codepage.

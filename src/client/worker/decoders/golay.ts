@@ -384,7 +384,6 @@ export class GSCDecoder {
 
 	/** Enter RX_VOICE after a voice page start: defer the 'stop' until the
 	 * transmission actually ends (silence, new preamble, or timeout). Faithful
-	 * port of osmocom rx_enter_voice. */
 	private _enterVoice(): void {
 		this.state = 'voice';
 		// osmocom rx_enter_voice: rx_shift_count=0, rx_no_transition=0,
@@ -418,8 +417,7 @@ export class GSCDecoder {
 		this._resetIdle();
 	}
 
-	/** RX_VOICE bit handling — line-for-line port of osmocom dsp.c RX_VOICE.
-	 * Alert-wait (drained by samples in process()) suppresses stop detection;
+	/** Alert-wait (drained by samples in process()) suppresses stop detection;
 	 * then stop on silence (48 consecutive same-value bits) or a sliding-window
 	 * match of a new preamble / the activation code. Timeout is in process(). */
 	private _onVoiceBit(b: number): void {
@@ -471,7 +469,6 @@ export class GSCDecoder {
 
 /**
  * Decode one GSC batch from a collected bit buffer. Returns a message or null.
- * Faithful port of golay.c decode_batch: start code -> address (W1/W2 with
  * inversion + range detection) -> type detection -> data blocks. Both alpha and
  * numeric interpretations are produced and the winner is chosen by trailing-fill
  * count then content (gsc_discriminate).

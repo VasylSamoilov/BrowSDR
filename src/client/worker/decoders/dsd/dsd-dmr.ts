@@ -1,6 +1,5 @@
 /*
  * DMR (Digital Mobile Radio) frame processor for DSD.
- * Ported from SDR++ Brown dsd_dmr.cpp.
  *
  * DMR uses 2-slot TDMA with AMBE 3600x2450 codec.
  * Voice superframe: 6 bursts, each containing 3 AMBE frames.

@@ -1,6 +1,5 @@
 /*
  * NXDN frame processor for DSD.
- * Ported from SDR++ Brown dsd_nxdn.cpp.
  *
  * NXDN uses AMBE 3600x2450 codec, same as DMR.
  * Voice frames are XORed with a pseudo-random sequence before interleaving.

@@ -1,7 +1,6 @@
 /**
  * FLEX numeric vector decode: BCD digit extraction (standard / special /
  * numbered numeric) and the numbered-numeric header (N / R / S). A faithful
- * port of the osmocom dsp.c numeric path.
  */
 
 import type { FlexMessage } from './types';

@@ -1,6 +1,5 @@
 /*
  * Golay(24,12) error correction for DSD (P25, DMR).
- * Ported from SDR++ Brown Golay24.hpp.
  * Based on the work of Mr Hank Wallace, adapted from http://www.aqdi.com/golay.htm
  */
 

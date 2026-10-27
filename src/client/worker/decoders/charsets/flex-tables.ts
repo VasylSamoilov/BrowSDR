@@ -1,7 +1,6 @@
 /*
  * FLEX codepages (7-bit, 128 codes) -- RX decode (primary display glyph).
  *
- * Ported from osmocom-analog src/libpagercharset/charset_flex_*.c (entry[0],
  * the RX primary glyph; TX aliases are not needed for a receive-only decoder).
  * Expressed as overrides on the standard ASCII identity base (0x20-0x7E + CR/LF);
  * the Motorola Linguist sets remap the 0x01-0x1F control region to symbols and

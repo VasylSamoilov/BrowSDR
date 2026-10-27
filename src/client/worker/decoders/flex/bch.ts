@@ -1,6 +1,5 @@
 /**
  * FLEX forward-error-correction: BCH(31,21,2) + even parity over GF(2^5),
- * and the combined A / inv.A sync cross-correction. A faithful port of the
  * osmocom-analog src/flex/dsp.c flex_bch_* routines.
  *
  * BCH(31,21) + even parity = 32-bit codeword. The field is GF(2^5) with

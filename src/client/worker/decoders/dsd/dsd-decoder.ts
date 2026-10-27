@@ -2,7 +2,6 @@ import type { SyncPattern, DSDMode, DSDStatus } from './types';
 /*
  * Main DSD (Digital Speech Decoder) state machine.
  * Handles frame sync detection and dispatches to mode-specific processors.
- * Ported from SDR++ Brown dsd.h / dsd_demod.cpp.
  */
 
 import { FIRFilter, ClockRecovery, FourFSKSlicer, rrcTaps } from './dsd-dsp';

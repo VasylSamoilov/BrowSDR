@@ -1,6 +1,5 @@
 /**
  * FLEX over-the-air clock consistency voting (ARIB STD-43A 3.7.2; faithful
- * port of multimon-ng flextime_vote_*). A single BIW date/time/timezone word
  * that passes BCH can still be wrong -- a corrupted word yields a random but
  * in-range value. So readings are not trusted on first sight: each component
  * is promoted only after FLEX_VOTE_THRESHOLD of the last FLEX_VOTE_RING
@@ -189,7 +188,6 @@ export function voteTime(v: FlexTimeVote, net: FlexNetInfo, hour: number, min: n
 }
 
 /**
- * Detect STANDARD vs DIRECT time mode (ARIB 3.7.2; port of multimon-ng). Within
  * one cycle, compare this TIME reading against an anchor >=5 frames earlier:
  * identical min/sec means the time is held constant across the cycle (STANDARD,
  * Frame-0 time), differing means it tracks the frame (DIRECT). Three agreeing
