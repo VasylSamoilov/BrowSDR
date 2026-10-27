@@ -247,7 +247,7 @@ export class RDSDecoder {
 		if (bv[3]) {
 			const d = this.blocks[3];
 			const q = this.blockQuality(3);
-			acceptCharFn(seg * 2,     (d >> 8, this.rtChars, this.region) & 0xff, this.psChars, this.psStatus, q);
+			acceptCharFn(seg * 2,     (d >> 8) & 0xff, this.psChars, this.psStatus, q, this.rtChars, this.region);
 			acceptCharFn(seg * 2 + 1, d & 0xff,        this.psChars, this.psStatus, q, this.rtChars, this.region);
 			const ps = buildPS(this.psChars);
 			if (ps && ps !== this.lastPs) { this.lastPs = ps; this.callback({ ps, psCharStatus: [...this.psStatus] }); }
@@ -443,11 +443,11 @@ export class RDSDecoder {
 		this.rtAbFlag = abFlag; this.rtVersion = version;
 		const seg = blockB & 0x0f;
 		if (version === 0) {
-			if (bv[2]) { const c = this.blocks[2]; const q = this.blockQuality(2); acceptCharFn(seg*4,   (c>>8, this.rtChars, this.region)&0xff, this.rtChars, this.rtStatus, q); acceptCharFn(seg*4+1, c&0xff, this.rtChars, this.rtStatus, q, this.rtChars, this.region); }
-			if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); acceptCharFn(seg*4+2, (d>>8, this.rtChars, this.region)&0xff, this.rtChars, this.rtStatus, q); acceptCharFn(seg*4+3, d&0xff, this.rtChars, this.rtStatus, q, this.rtChars, this.region); }
+			if (bv[2]) { const c = this.blocks[2]; const q = this.blockQuality(2); acceptCharFn(seg*4,   (c>>8) & 0xff, this.rtChars, this.rtStatus, q, this.rtChars, this.region); acceptCharFn(seg*4+1, c&0xff, this.rtChars, this.rtStatus, q, this.rtChars, this.region); }
+			if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); acceptCharFn(seg*4+2, (d>>8) & 0xff, this.rtChars, this.rtStatus, q, this.rtChars, this.region); acceptCharFn(seg*4+3, d&0xff, this.rtChars, this.rtStatus, q, this.rtChars, this.region); }
 		} else if (bv[3]) {
 			const d = this.blocks[3]; const q = this.blockQuality(3);
-			acceptCharFn(seg*2,   (d>>8, this.rtChars, this.region)&0xff, this.rtChars, this.rtStatus, q);
+			acceptCharFn(seg*2,   (d>>8) & 0xff, this.rtChars, this.rtStatus, q, this.rtChars, this.region);
 			acceptCharFn(seg*2+1, d&0xff,      this.rtChars, this.rtStatus, q, this.rtChars, this.region);
 		}
 		const rt = buildRT(this.rtChars);
@@ -505,8 +505,8 @@ export class RDSDecoder {
 			this.ptynChars.fill(null); this.ptynStatus.fill(0); this.lastPtyn = '';
 		}
 		const seg = blockB & 1;
-		if (bv[2]) { const c = this.blocks[2]; const q = this.blockQuality(2); acceptCharFn(seg*4,   (c>>8, this.rtChars, this.region)&0xff, this.ptynChars, this.ptynStatus, q); acceptCharFn(seg*4+1, c&0xff, this.ptynChars, this.ptynStatus, q, this.rtChars, this.region); }
-		if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); acceptCharFn(seg*4+2, (d>>8, this.rtChars, this.region)&0xff, this.ptynChars, this.ptynStatus, q); acceptCharFn(seg*4+3, d&0xff, this.ptynChars, this.ptynStatus, q, this.rtChars, this.region); }
+		if (bv[2]) { const c = this.blocks[2]; const q = this.blockQuality(2); acceptCharFn(seg*4,   (c>>8) & 0xff, this.ptynChars, this.ptynStatus, q, this.rtChars, this.region); acceptCharFn(seg*4+1, c&0xff, this.ptynChars, this.ptynStatus, q, this.rtChars, this.region); }
+		if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); acceptCharFn(seg*4+2, (d>>8) & 0xff, this.ptynChars, this.ptynStatus, q, this.rtChars, this.region); acceptCharFn(seg*4+3, d&0xff, this.ptynChars, this.ptynStatus, q, this.rtChars, this.region); }
 		if (!this.ptynChars.includes(null)) {
 			const ptyn = (this.ptynChars as string[]).join('').trimEnd();
 			if (ptyn && ptyn !== this.lastPtyn) { this.lastPtyn = ptyn; this.callback({ ptyn, ptynCharStatus: [...this.ptynStatus], srcAbFlag: this.ptynAbFlag }); }
