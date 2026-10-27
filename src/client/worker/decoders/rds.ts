@@ -46,8 +46,9 @@ export class RDSDecoder {
 	// DSP demodulator -- see rds-demod.ts
 	private readonly demod: RDSDemodulator;
 	// Block data mirrored from demod for fast local access (readonly arrays, contents mutated)
-	private readonly blocks: number[] = [0, 0, 0, 0];
-	private readonly blockValid: boolean[] = [false, false, false, false];
+	// Public for white-box unit tests that inject raw block data directly.
+	readonly blocks: number[] = [0, 0, 0, 0];
+	readonly blockValid: boolean[] = [false, false, false, false];
 	private readonly blockCorrected: boolean[] = [false, false, false, false];
 	// ODA accessor closures (class fields so they bind `this` correctly)
 	private readonly _getOdaBlocks = () => this.blocks;
@@ -133,7 +134,7 @@ export class RDSDecoder {
 				this.blockValid[i] = bv[i];
 				this.blockCorrected[i] = bc[i];
 			}
-			this.decodeGroup();
+			this._decodeGroup();
 		});
 
 		// Initialize ODA decoder (RT+, eRT+, eRT, TMC)
@@ -141,6 +142,7 @@ export class RDSDecoder {
 	}
 
 	setRegion(region: string): void {
+		if (region === this.region) return;
 		this.region = region;
 		if (this.pi) {
 			this.callback({ piCallsign: region === 'na' ? (rbdsCallsign(this.pi) ?? undefined) : undefined });
@@ -153,6 +155,21 @@ export class RDSDecoder {
 
 	process(samples: Float32Array): void {
 		this.demod.process(samples);
+	}
+
+	/** Feed a single biphase bit directly, bypassing the MPX demodulator (for unit tests). */
+	processBit(bit: number): void {
+		this.demod.processBit(bit);
+	}
+
+	/** Decode the current block data (for unit tests that set blocks/blockValid directly). */
+	decodeGroup(): void {
+		this._decodeGroup();
+	}
+
+	/** Return the current accumulated RadioText string (for unit tests). */
+	buildRT(): string | null {
+		return buildRT(this.rtChars);
 	}
 	// quality: 0=clean block, 1=BCH-corrected, 2=uncorrectable/lost
 	private _handlePiChange(pi: number): void {
@@ -191,7 +208,7 @@ export class RDSDecoder {
 		});
 	}
 
-	private decodeGroup(): void {
+	private _decodeGroup(): void {
 		const bv = this.blockValid;
 		if (bv[0]) this._handlePiChange(this.blocks[0]);
 		if (!bv[1]) return;

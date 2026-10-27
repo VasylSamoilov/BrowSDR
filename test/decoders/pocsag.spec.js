@@ -237,7 +237,7 @@ describe('POCSAG decoder — PR #49 review regressions', () => {
 			const msgs = [];
 			const dec = new _POCSAGSingleBaud(48000, baud, (m) => msgs.push(m));
 			const batch = buildBatch(0, alphaCodewords('DCTEST'));
-			const signal = buildSignal(batch, { baud, amp: 0.025, dc: 0.05 });
+			const signal = buildSignal(batch, { baud, amp: 0.1, dc: 0.05, preambleBits: 576 });
 			dec.process(signal);
 			expect(msgs.length, `baud ${baud}`).toBeGreaterThan(0);
 			expect(msgs[0].text).toContain('DCTEST');

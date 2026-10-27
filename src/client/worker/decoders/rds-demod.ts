@@ -245,6 +245,11 @@ export class RDSDemodulator {
 		return this.blockCorrected[idx] ? 1 : 0;
 	}
 
+	/** Feed a single biphase bit directly (for testing without MPX signal generation). */
+	processBit(bit: number): void {
+		this._processBit(bit);
+	}
+
 	private _processBit(bit: number): void {
 		this.shiftReg = ((this.shiftReg << 1) | bit) & 0x3ffffff;
 		this.bitCount++;
