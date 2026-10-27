@@ -35,13 +35,9 @@ export class FskBitSlicer {
 
 	// ── DC removal ──
 	private dcLevel = 0;
-	/** DC-removal IIR with a 10 ms time constant. Each update is clamped to
-	 * ±DC_CLAMP of the current envelope so a long same-symbol run (IDLE words,
-	 * long message runs) cannot drag the estimate toward the symbol level and
-	 * bias the slicer. */
+	/** Unclamped acquisition IIR with a 10 ms time constant. The estimate is
+	 * held after sync so unbalanced payload runs cannot move the threshold. */
 	private readonly dcAlpha: number;
-	private static readonly DC_CLAMP = 0.001; // max DC shift per sample as fraction of env
-	private static readonly DC_MAX = 0.1; // hard cap on DC estimate as fraction of env
 
 	// ── PLL / timing ──
 	/** PLL lock state (drives the timing gain). Read and set by the decoder's
@@ -139,15 +135,8 @@ export class FskBitSlicer {
 		// gives unbiased estimates; data words are not balanced so updating
 		// during decode would bias the slicer.
 		if (!this.pllLocked) {
-			const delta = this.dcAlpha * (x - this.dcLevel);
-			const maxDelta = FskBitSlicer.DC_CLAMP * this.env;
-			this.dcLevel += delta > maxDelta ? maxDelta : delta < -maxDelta ? -maxDelta : delta;
+			this.dcLevel += this.dcAlpha * (x - this.dcLevel);
 		}
-		// Hard clamp: DC estimate never exceeds ±DC_MAX × env even during
-		// acquisition, so a very noisy preamble cannot park a huge offset.
-		const maxDc = FskBitSlicer.DC_MAX * this.env;
-		if (this.dcLevel > maxDc) this.dcLevel = maxDc;
-		else if (this.dcLevel < -maxDc) this.dcLevel = -maxDc;
 		return x - this.dcLevel;
 	}
 

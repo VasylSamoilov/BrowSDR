@@ -226,11 +226,13 @@ function handleRemoteWorkerAudio(state: RemoteClientState, msg: DspAudio, backen
 		backend._perf.dspTimeMax = Math.max(backend._perf.dspTimeMax, elapsed);
 		backend._perf.audioSamplesOut += (samples?.length ?? 0) / (msg.channels ?? 1);
 	}
-	const prev = state.squelchOpen[index] || false;
-	const curr = !!msg.squelchOpen;
-	state.squelchOpen[index] = curr;
-	if (curr !== prev && backend._remoteHostSquelchCb) {
-		backend._remoteHostSquelchCb(clientId, state.squelchOpen.slice());
+	if (!msg.pager) {
+		const prev = state.squelchOpen[index] || false;
+		const curr = !!msg.squelchOpen;
+		state.squelchOpen[index] = curr;
+		if (curr !== prev && backend._remoteHostSquelchCb) {
+			backend._remoteHostSquelchCb(clientId, state.squelchOpen.slice());
+		}
 	}
 	if (samples) {
 		if (msg.pager) {

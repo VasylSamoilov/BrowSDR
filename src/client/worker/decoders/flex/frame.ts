@@ -95,14 +95,18 @@ function bchDecodePhase(ph: FlexPhaseData): { words: Uint32Array; status: Int8Ar
 	// region-aware I&D safety rule.
 	let biwAoffset = 1;
 	let biwVoffset = FLEX_WORDS_PER_FRAME;
-	const biw = bchDecode(ph.words[0]);
-	if (biw.info >= 0) {
-		const v = (biw.info >> 10) & 0x3f;
-		biwAoffset = ((biw.info >> 8) & 0x03) + 1;
-		if (v > 0) biwVoffset = v;
+	if (!ph.receivedBits || ph.receivedBits[0] === 32) {
+		const biw = bchDecode(ph.words[0]);
+		if (biw.info >= 0) {
+			const v = (biw.info >> 10) & 0x3f;
+			biwAoffset = ((biw.info >> 8) & 0x03) + 1;
+			if (v > 0) biwVoffset = v;
+		}
 	}
 
 	for (let i = 0; i < FLEX_WORDS_PER_FRAME; i++) {
+		// Zero-filled and partly shifted buffers are not received codewords.
+		if (ph.receivedBits && ph.receivedBits[i] < 32) continue;
 		const rawPrimary = ph.words[i];
 		const primary = bchDecode(rawPrimary);
 		if (primary.info >= 0) {
@@ -113,6 +117,12 @@ function bchDecodePhase(ph: FlexPhaseData): { words: Uint32Array; status: Int8Ar
 			continue;
 		}
 		// Primary failed: try the I&D alternate word.
+		if (ph.altReceivedBits && ph.altReceivedBits[i] < 32) {
+			words[i] = rawPrimary;
+			status[i] = WORD_UNCORRECTABLE;
+			errBits[i] = BCH_CODE_BITS;
+			continue;
+		}
 		const alt = bchDecode(ph.altWords[i]);
 		const inAddrRegion = i >= biwAoffset && i < biwVoffset;
 		if (alt.info >= 0 && !inAddrRegion) {

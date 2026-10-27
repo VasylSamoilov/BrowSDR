@@ -95,11 +95,8 @@ export class PagerLegs {
 					samples: cloneOut.buffer,
 					channels: 1,
 					chunkId,
-					// Pager legs post squelch state from the DSP leg itself so the
-					// main VFO activity tracker is NOT updated from pager buffers --
-					// only main-channel buffers (msg.pager === undefined) drive VFO
-					// squelch/RX-activity state. The leg carries its own squelch_db
-					// for diagnostics but squelchOpen is always false on pager legs.
+					// Pager audio is continuous; only untagged main-channel buffers
+					// update VFO squelch/RX activity in the receiving handlers.
 					squelchOpen: false,
 					squelchDb: leg.get_squelch_db(),
 					dspTime: 0,

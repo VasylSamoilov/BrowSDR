@@ -18,6 +18,15 @@ function shouldFeedWhisper(backend: Backend, params: VfoParams): boolean {
 	return !!backend._whisperEnabled && !params.pocsag && !params.gsc && !params.flex;
 }
 
+/** Only main-channel audio may update the VFO's squelch and RX latch. */
+function updateLocalSquelch(backend: Backend, state: VfoState, v: number, msg: DspAudio): void {
+	if (msg.pager) return;
+	state.squelchOpen = msg.squelchOpen;
+	state.squelchDb = msg.squelchDb ?? -120;
+	backend._latchedSquelchOpen ??= [];
+	if (msg.squelchOpen) backend._latchedSquelchOpen[v] = true;
+}
+
 export function installWorkerAudioHandler(
 	backend: Backend,
 	_audioDebugCounter: number,
@@ -39,10 +48,7 @@ export function installWorkerAudioHandler(
 			return;
 		}
 
-		state.squelchOpen = msg.squelchOpen;
-		state.squelchDb = msg.squelchDb ?? -120;
-		if (!backend._latchedSquelchOpen) backend._latchedSquelchOpen = [];
-		if (msg.squelchOpen) backend._latchedSquelchOpen[v] = true;
+		updateLocalSquelch(backend, state, v, msg);
 		if (msg.dspTime) {
 			perf.dspTimeSum += msg.dspTime;
 			if (msg.dspTime > perf.dspTimeMax) perf.dspTimeMax = msg.dspTime;

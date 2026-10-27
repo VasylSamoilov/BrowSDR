@@ -32,7 +32,6 @@ export class RDSOdaDecoder {
 	private eRTBytes: Uint8Array = new Uint8Array(128);
 	private eRTFilled: boolean[] = new Array<boolean>(128).fill(false);
 	private eRTQuality: number[] = new Array<number>(128).fill(0);
-	private eRTAbFlag = -1;
 	private lastERT = '';
 
 	// TMC state
@@ -67,7 +66,6 @@ export class RDSOdaDecoder {
 		this.eRTBytes.fill(0);
 		this.eRTFilled.fill(false);
 		this.eRTQuality.fill(0);
-		this.eRTAbFlag = -1;
 		this.lastERT = '';
 		this.tmcGroup = -1;
 		this.tmcContinuity = 0;
@@ -106,19 +104,17 @@ export class RDSOdaDecoder {
 	private decodeERT(blockB: number, bv: boolean[]): void {
 		const blocks = this.getBlocks();
 		// eRT uses a 5-bit segment address (bits [4:0] of block B), giving 32
-		// segments (0-31) of 4 bytes each = 128 bytes maximum. The A/B flag is
-		// carried in block B bit 5, above the segment address.
-		const abFlag = (blockB >> 5) & 1;
-		if (abFlag !== this.eRTAbFlag) {
-			this.eRTAbFlag = abFlag;
+		// segments (0-31) of 4 bytes each = 128 bytes maximum. There is no
+		// text A/B bit here: bits [9:5] belong to PTY.
+		const seg = blockB & 0x1f;
+		const base = seg * 4;
+		if (this.ertSegmentChanged(base, bv)) {
+			// A changed, equally reliable segment starts a new text assembly.
+			// Retain the last complete text until its replacement is complete.
 			this.eRTBytes.fill(0);
 			this.eRTFilled.fill(false);
 			this.eRTQuality.fill(0);
-			this.lastERT = '';
 		}
-		const seg = blockB & 0x1f;
-		const base = seg * 4;
-		if (base + 3 >= 128) return;
 		const wb = (pos: number, val: number, q: number) => {
 			if (!this.eRTFilled[pos]) {
 				this.eRTBytes[pos] = val;
@@ -174,6 +170,20 @@ export class RDSOdaDecoder {
 		} else {
 			this.cb({ eRTPartial: text, eRTCharStatus: cpQuality });
 		}
+	}
+
+	private ertSegmentChanged(base: number, bv: boolean[]): boolean {
+		const blocks = this.getBlocks();
+		for (const block of [2, 3]) {
+			if (!bv[block]) continue;
+			const quality = this.getBlockQuality(block);
+			for (let byte = 0; byte < 2; byte++) {
+				const pos = base + (block - 2) * 2 + byte;
+				const value = (blocks[block] >> (byte === 0 ? 8 : 0)) & 0xff;
+				if (this.eRTFilled[pos] && this.eRTQuality[pos] < 2 && quality <= this.eRTQuality[pos] && value !== this.eRTBytes[pos]) return true;
+			}
+		}
+		return false;
 	}
 
 	private _ertDecodeUtf8(rawLen: number): { chars: string[]; cpQuality: number[] } {

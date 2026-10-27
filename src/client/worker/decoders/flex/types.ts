@@ -105,6 +105,10 @@ export interface FlexPhaseData {
 	lowConfBitB: Uint32Array;
 	/** Alternate (integrate-and-dump) decoded words, used as BCH fallback. */
 	altWords: Uint32Array;
+	/** Received bits per word; absent on complete externally constructed frames. */
+	receivedBits?: Uint8Array;
+	/** Received bits in the alternate slicer, including replayed SYNC2 tail. */
+	altReceivedBits?: Uint8Array;
 	idleCount: number;
 }
 
@@ -127,8 +131,9 @@ export interface FlexFrontendEvents {
 	/** A valid FIW was decoded (after SYNC1, before SYNC2). */
 	onFiw?: (fiw: FlexFiw) => void;
 	/**
-	 * A full data frame's four interleaved phase buffers are ready for
-	 * block/message decode. `activePhases` lists the phase-buffer indices this
+	 * A full or interrupted frame's phase buffers are ready for block/message
+	 * decode; receivedBits distinguishes complete words from missing data.
+	 * `activePhases` lists the phase-buffer indices this
 	 * mode actually decodes: [0] for A1, [0,2] (A,C) for A2/A3, [0,1,2,3] for A4.
 	 */
 	onFrame?: (phases: FlexPhaseData[], activePhases: number[], fiw: FlexFiw, polarity: number) => void;

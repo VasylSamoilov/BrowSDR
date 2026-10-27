@@ -15,7 +15,8 @@ const failures = [];
 async function check(directory) {
 	const entries = await fs.readdir(directory, { withFileTypes: true });
 	const files = entries.filter((entry) => entry.isFile());
-	const key = Object.keys(Object.fromEntries(overrides)).find((suffix) => directory.endsWith(suffix));
+	const normalizedDirectory = directory.split(path.sep).join('/');
+	const key = [...overrides.keys()].find((suffix) => normalizedDirectory.endsWith(suffix));
 	const limit = key ? overrides.get(key) : maximum;
 	if (files.length > limit) failures.push(`${directory}: ${files.length} files (maximum ${limit})`);
 	await Promise.all(entries.filter((entry) => entry.isDirectory()).map((entry) => check(path.join(directory, entry.name))));

@@ -8,8 +8,8 @@
  * Unlike the free-running FskBitSlicer that POCSAG and GSC share, this front
  * end is frame-aware: FLEX changes symbol rate mid-frame (the S1 preamble is
  * always 1600 baud / 2FSK; data runs at 1600 or 3200 baud per the sync code),
- * and it slices four levels, not two. The positive/negative signal levels and
- * the slice envelope are measured once on the known-symmetric S1 preamble and
+ * and it slices four levels, not two. The slice envelope is measured on the
+ * most recent known-symmetric S1 preamble and
  * HELD (frozen) through the data portion, because the 4FSK symbol distribution
  * is not DC-balanced over short intervals and continuous re-estimation would
  * shift the threshold and destroy the inner-level (bit_b) decision.
@@ -136,6 +136,8 @@ function makePhase(): FlexPhaseData {
 		lowConfBitA: new Uint32Array(FLEX_WORDS_PER_FRAME),
 		lowConfBitB: new Uint32Array(FLEX_WORDS_PER_FRAME),
 		altWords: new Uint32Array(FLEX_WORDS_PER_FRAME),
+		receivedBits: new Uint8Array(FLEX_WORDS_PER_FRAME),
+		altReceivedBits: new Uint8Array(FLEX_WORDS_PER_FRAME),
 		idleCount: 0,
 	};
 }
@@ -158,10 +160,8 @@ export class FlexFrontend {
 	private pllEnvelope = 0;
 	private pllEnvelopeSum = 0;
 	private pllEnvelopeCount = 0;
-	private pllPosSum = 0;
-	private pllPosCount = 0;
-	private pllNegSum = 0;
-	private pllNegCount = 0;
+	private readonly envelopeWindow: Float64Array;
+	private envelopePos = 0;
 
 	// -- per-symbol vote accumulators --
 	private readonly symCount = [0, 0, 0, 0];
@@ -207,10 +207,15 @@ export class FlexFrontend {
 	// Integrate-and-dump accumulator for the alternate (fallback) symbol.
 	private pllIadSum = 0;
 	private pllIadN = 0;
+	private altSymbol = 1;
+	private sync2AltSymBuf = new Uint8Array(4);
 
 	constructor(sampleFreq: number, events: FlexFrontendEvents = {}) {
 		this.sampleFreq = sampleFreq;
 		this.ev = events;
+		// One complete S1 (112 symbols): noise or previous frames cannot
+		// dominate the level estimate when the next preamble is validated.
+		this.envelopeWindow = new Float64Array(Math.ceil((sampleFreq * 112) / 1600));
 	}
 
 	reset(): void {
@@ -261,6 +266,8 @@ export class FlexFrontend {
 			ph.lowConfBitA.fill(0);
 			ph.lowConfBitB.fill(0);
 			ph.altWords.fill(0);
+			ph.receivedBits!.fill(0);
+			ph.altReceivedBits!.fill(0);
 			ph.idleCount = 0;
 		}
 		this.phaseToggle = 0;
@@ -271,10 +278,7 @@ export class FlexFrontend {
 		this.pllEnvelope = 0;
 		this.pllEnvelopeSum = 0;
 		this.pllEnvelopeCount = 0;
-		this.pllPosSum = 0;
-		this.pllPosCount = 0;
-		this.pllNegSum = 0;
-		this.pllNegCount = 0;
+		this.envelopePos = 0;
 	}
 
 	/** Feed a block of FM-demodulated samples. */
@@ -351,19 +355,16 @@ export class FlexFrontend {
 		return false;
 	}
 
-	/** Accumulate (and hold) the envelope and pos/neg levels during S1. */
+	/** Estimate the envelope from the last S1-sized window, held outside S1. */
 	private accumulateEnvelope(sample: number): void {
 		if (this.rxState !== RX_STATE_SYNC1) return;
-		this.pllEnvelopeSum += Math.abs(sample);
-		this.pllEnvelopeCount++;
+		if (this.pllEnvelopeCount === this.envelopeWindow.length) this.pllEnvelopeSum -= this.envelopeWindow[this.envelopePos];
+		else this.pllEnvelopeCount++;
+		const level = Math.abs(sample);
+		this.envelopeWindow[this.envelopePos] = level;
+		this.envelopePos = (this.envelopePos + 1) % this.envelopeWindow.length;
+		this.pllEnvelopeSum += level;
 		this.pllEnvelope = this.pllEnvelopeSum / this.pllEnvelopeCount;
-		if (sample > 0) {
-			this.pllPosSum += sample;
-			this.pllPosCount++;
-		} else if (sample < 0) {
-			this.pllNegSum += sample;
-			this.pllNegCount++;
-		}
 	}
 
 	/** Pull the PLL phase toward the symbol edge at a zero crossing. */
@@ -406,8 +407,9 @@ export class FlexFrontend {
 		// Integrate-and-dump alternate symbol over the center 50% window; feed
 		// it into the alt phase buffers during data as a BCH fallback.
 		const iadSymbol = this.integrateDumpSymbol();
+		this.altSymbol = this.polarity ? 3 - iadSymbol : iadSymbol;
 		if (this.pllLocked && this.rxState === RX_STATE_DATA) {
-			this.readAltData(this.polarity ? 3 - iadSymbol : iadSymbol);
+			this.readAltData(this.altSymbol);
 		}
 
 		if (this.pllLocked) {
@@ -437,6 +439,9 @@ export class FlexFrontend {
 
 	private setLocked(locked: boolean): void {
 		if (this.pllLocked === locked) return;
+		// Preserve complete words collected before loss of signal or timing.
+		// The per-word bit counts keep partial/missing words out of BCH decode.
+		if (!locked && this.rxState === RX_STATE_DATA && this.dataCount > 0) this.endData();
 		this.pllLocked = locked;
 		if (!locked) this.ersReported = false; // re-arm: next ERS burst is reportable
 		if (FLEX_DEMOD_DIAG)
@@ -588,6 +593,7 @@ export class FlexFrontend {
 			// FIW failed — genuine sync loss. Reset DC so the fast S1 time
 			// constant re-acquires cleanly on the next preamble.
 			this.pllZero = 0;
+			this.resetEnvelope();
 			return;
 		}
 		if (FLEX_DEMOD_DIAG)
@@ -624,7 +630,8 @@ export class FlexFrontend {
 		// Buffer symbols around the nominal boundary to replay post-boundary.
 		if (this.sync2Count >= s2Symbols - 2 && this.sync2SymBufCount < 4) {
 			if (this.sync2SymBufCount === 0) this.sync2SymBufStart = this.sync2Count;
-			this.sync2SymBuf[this.sync2SymBufCount++] = symRect;
+			this.sync2SymBuf[this.sync2SymBufCount] = symRect;
+			this.sync2AltSymBuf[this.sync2SymBufCount++] = this.altSymbol;
 		}
 		this.sync2Count++;
 
@@ -642,6 +649,7 @@ export class FlexFrontend {
 		for (let k = 0; k < this.sync2SymBufCount; k++) {
 			const symPos = this.sync2SymBufStart + k;
 			if (symPos >= boundary) {
+				this.readAltData(this.sync2AltSymBuf[k]);
 				this.readData(this.sync2SymBuf[k]);
 				this.dataCount++;
 			}
@@ -695,10 +703,16 @@ export class FlexFrontend {
 		const idle = this.readData(symRect);
 		const full = ++this.dataCount === (this.baud * 1760) / 1000;
 		if (!full && !idle) return;
+		this.endData();
+	}
+
+	private endData(): void {
 		this.finishFrame();
 		this.baud = 1600;
 		this.rxState = RX_STATE_SYNC1;
 		this.s1TailCount = 0;
+		this.dataCount = 0;
+		this.resetEnvelope();
 	}
 
 	/**
@@ -771,6 +785,7 @@ export class FlexFrontend {
 	private shiftWord(phaseIdx: number, idx: number, bit: number, bitaLow: number, bitbLow: number): void {
 		const ph = this.phases[phaseIdx];
 		ph.words[idx] = ((ph.words[idx] >>> 1) | (bit ? 0x80000000 : 0)) >>> 0;
+		ph.receivedBits![idx]++;
 		ph.lowConfBitA[idx] = ((ph.lowConfBitA[idx] >>> 1) | (bitaLow ? 0x80000000 : 0)) >>> 0;
 		ph.lowConfBitB[idx] = ((ph.lowConfBitB[idx] >>> 1) | (bitbLow ? 0x80000000 : 0)) >>> 0;
 	}
@@ -790,9 +805,11 @@ export class FlexFrontend {
 		const [p0, p1] = this.phasePair();
 		this.phases[p0].altWords[idx] = ((this.phases[p0].altWords[idx] >>> 1) | (bitA ? 0x80000000 : 0)) >>> 0;
 		this.phases[p1].altWords[idx] = ((this.phases[p1].altWords[idx] >>> 1) | (bitB ? 0x80000000 : 0)) >>> 0;
+		this.phases[p0].altReceivedBits![idx]++;
+		this.phases[p1].altReceivedBits![idx]++;
 	}
 
-	/** Emit the completed frame's phase buffers for block/message decode. */
+	/** Emit received phase words at full-frame, idle, or lock-loss termination. */
 	private finishFrame(): void {
 		if (!this.fiw) return;
 		// Active phase indices per mode (A1:[A], A2/A3:[A,C], A4:[A,B,C,D]).
