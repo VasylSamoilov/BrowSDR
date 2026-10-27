@@ -231,29 +231,25 @@ const ODA_AIDS: Record<number, string> = {
 };
 
 // ── AF frequency decode (IEC 62106 §6.2.1.6) ────────────────────
-// Returns frequency in units of 100 Hz (i.e. kHz * 10) for FM, kHz for LF/MF.
-// Per EN 50067 Table 11 / Table 12:
-//   1-204   = FM (87.6+0.1*code MHz for EU; RBDS mapping for NA)
-//   224-249 = count codes (not frequencies -- handled in processAfPair)
-//   250     = LF/MF frequency follows (next code is LF/MF)
-//   1-15    = LF (153+9*(code-1) kHz, ITU region 1/3)
-//   16-135  = MF (531+9*(code-16) kHz)
+// Returns frequency in units of kHz*10 (i.e. 100 Hz) for FM.
+// LF/MF frequencies use decodeLfMfCode() instead.
+// Codes 224-249 = count codes; 250 = LF/MF follows; 205 = filler -- all handled in processAfPair.
 function decodeAfCode(code: number, region: string): number | null {
 	if (code >= 1 && code <= 204) {
-		// FM frequency
 		if (region === 'na') return Math.round((879 + (code - 4) * 2) * 100);
 		return Math.round((875 + code) * 100);
 	}
-	// LF/MF codes (used as second byte after code 250)
-	if (code >= 1 && code <= 15)  return (153 + (code - 1) * 9) * 10;   // LF: 153-279 kHz in 0.1 kHz units
-	if (code >= 16 && code <= 135) return (531 + (code - 16) * 9) * 10; // MF: 531-1602 kHz
 	return null;
 }
 
-// Decode a LF/MF code directly (code 1-135, no range check on FM)
-function decodeLfMfCode(code: number): number | null {
-	if (code >= 1 && code <= 15)   return (153 + (code - 1) * 9) * 10;
-	if (code >= 16 && code <= 135) return (531 + (code - 16) * 9) * 10;
+// Decode a LF/MF code directly (code 1-135).
+// Region affects MF: RDS (EU) uses 9 kHz grid from 531 kHz; RBDS (NA) uses 10 kHz from 540 kHz.
+// Returns frequency in kHz (not kHz*10 like FM).
+function decodeLfMfCode(code: number, region = 'eu'): number | null {
+	if (code >= 1 && code <= 15)   return 153 + (code - 1) * 9;               // LF: same for both regions
+	if (code >= 16 && code <= 135) return region === 'na'
+		? 540 + (code - 16) * 10   // RBDS: 540-1700 kHz, 10 kHz grid
+		: 531 + (code - 16) * 9;   // RDS: 531-1602 kHz, 9 kHz grid
 	return null;
 }
 
@@ -484,6 +480,8 @@ export class RDSDecoder {
 		mappedFreqs: Array<{ tuned: number; other: number }>;
 		ptyOn: number;
 		pinDay: number; pinHour: number; pinMinute: number;
+		// Variant 12: Linkage Set Number and flags
+		lsn: number; lsIls: boolean; lsEg: boolean; lsLa: boolean;
 		lastKey: string;
 	}> = new Map();
 
@@ -848,7 +846,7 @@ export class RDSDecoder {
 
 		// Handle LF/MF carry-over from previous pair
 		if (this.afLfMfNext) {
-			const fa = decodeLfMfCode(a);
+			const fa = decodeLfMfCode(a, this.region);  // returns kHz directly
 			if (fa !== null && !this.afList.includes(fa)) this.afList.push(fa);
 			this.afLfMfNext = false;
 			// b is the next normal code
@@ -1139,6 +1137,7 @@ export class RDSDecoder {
 				af: [], mappedFreqs: [],
 				ptyOn: -1,
 				pinDay: 0, pinHour: 0, pinMinute: 0,
+				lsn: -1, lsIls: false, lsEg: false, lsLa: false,
 				lastKey: '',
 			});
 		const eon = this.eonMap.get(eonPi)!;
@@ -1174,7 +1173,7 @@ export class RDSDecoder {
 			// Block C high byte = tuning FM freq (TN), block C low byte = LF/MF code (ON)
 			const c = this.blocks[2];
 			const tuned = decodeAfCode((c >> 8) & 0xff, this.region);
-			const other = decodeLfMfCode(c & 0xff);
+			const other = decodeLfMfCode(c & 0xff, this.region);
 			if (tuned !== null && other !== null) {
 				const exists = eon.mappedFreqs.some(p => p.tuned === tuned && p.other === other);
 				if (!exists) eon.mappedFreqs.push({ tuned, other });
@@ -1182,8 +1181,12 @@ export class RDSDecoder {
 		} else if (variant === 12 && bv[2]) {
 			// Variant 12: Linkage information -- LSN and flags (§3.2.1.8.3)
 			// block C: bit 15=LA, bit 14=EG, bit 12=ILS, bits[11:0]=LSN
-			// No user-facing display currently; decoded for completeness
-			void this.blocks[2];
+			// Linkage Set Number and flags -- store on eon entry
+			const lc = this.blocks[2];
+			eon.lsn   = lc & 0x0fff;  // bits [11:0]: Linkage Set Number
+			eon.lsIls = ((lc >> 12) & 1) === 1; // bit 12: International Linkage Set flag
+			eon.lsEg  = ((lc >> 14) & 1) === 1; // bit 14: Extended Generic flag
+			eon.lsLa  = ((lc >> 15) & 1) === 1; // bit 15: Linkage Actuator
 		} else if (variant === 13 && bv[2]) {
 			// Variant 13: PTY(ON) + TA flag
 			// Per Figure 37: Information block has PTY(ON) and TA
@@ -1203,7 +1206,7 @@ export class RDSDecoder {
 		const ps = eon.psChars.every(ch => ch !== null)
 			? (eon.psChars as string[]).join('')
 			: undefined;
-		const key = `${eonPi}:${ps}:${eon.tp}:${eon.ta}:${eon.af.join(',')}:${eon.mappedFreqs.length}:${eon.ptyOn}:${eon.pinDay}`;
+		const key = `${eonPi}:${ps}:${eon.tp}:${eon.ta}:${eon.af.join(',')}:${eon.mappedFreqs.length}:${eon.ptyOn}:${eon.pinDay}:${eon.lsn}`;
 		if (eon.lastKey === key) return;
 		eon.lastKey = key;
 		this.callback({
@@ -1216,6 +1219,10 @@ export class RDSDecoder {
 				pinDay:      eon.pinDay > 0          ? eon.pinDay           : undefined,
 				pinHour:     eon.pinDay > 0          ? eon.pinHour          : undefined,
 				pinMinute:   eon.pinDay > 0          ? eon.pinMinute        : undefined,
+				lsn:         eon.lsn >= 0            ? eon.lsn              : undefined,
+				lsIls:       eon.lsn >= 0 && eon.lsIls ? true              : undefined,
+				lsEg:        eon.lsn >= 0 && eon.lsEg  ? true              : undefined,
+				lsLa:        eon.lsn >= 0 && eon.lsLa  ? true              : undefined,
 			}
 		});
 	}
@@ -1233,6 +1240,7 @@ export class RDSDecoder {
 				af: [], mappedFreqs: [],
 				ptyOn: -1,
 				pinDay: 0, pinHour: 0, pinMinute: 0,
+				lsn: -1, lsIls: false, lsEg: false, lsLa: false,
 				lastKey: '',
 			});
 		const eon = this.eonMap.get(eonPi)!;

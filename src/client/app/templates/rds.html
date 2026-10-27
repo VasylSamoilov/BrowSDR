@@ -96,8 +96,8 @@
 						🕐 {{ stn.ct }}<template v-if="stn.ctUtcOffset != null"> UTC{{ stn.ctUtcOffset >= 0 ? '+' : '' }}{{ (stn.ctUtcOffset / 2).toFixed(1) }}h</template>
 					</div>
 					<div class="rds-af" v-if="stn.af && stn.af.length" style="font-size:10px;opacity:0.55;"
-						:title="'Alternative Frequencies, Method ' + (stn.afMethod || 'A') + (stn.afMethod === 'B' ? ' (tuning-paired list, larger networks)' : ' (up to 25 frequencies)') + '\n' + stn.af.map(f => (f/1000).toFixed(1) + ' MHz').join(', ')">
-						AF<span v-if="stn.afMethod" style="opacity:0.6;font-size:9px;"> ({{ stn.afMethod }})</span>: {{ stn.af.map(f => (f/1000).toFixed(1)).join(' · ') }}
+						:title="'Alternative Frequencies, Method ' + (stn.afMethod || 'A') + (stn.afMethod === 'B' ? ' (tuning-paired list, larger networks)' : ' (up to 25 frequencies)') + '\n' + stn.af.map(f => formatAfFreq(null, f) + (f > 1700 ? ' MHz' : ' kHz')).join(', ')">
+						AF<span v-if="stn.afMethod" style="opacity:0.6;font-size:9px;"> ({{ stn.afMethod }})</span>: {{ stn.af.map(f => formatAfFreq(null, f)).join(' · ') }}
 					</div>
 					<!-- EON cross-referenced networks -->
 					<div v-if="Object.keys(stn.eonNetworks).length" style="font-size:10px;opacity:0.6;margin-top:3px;">
@@ -108,10 +108,11 @@
 								'PI: ' + eon.pi,
 								eon.ps ? 'PS: ' + eon.ps.trim() : '',
 								'TP: ' + (eon.tp ? 'yes' : 'no') + '  TA: ' + (eon.ta ? 'yes' : 'no'),
-								eon.af && eon.af.length ? 'AF: ' + eon.af.map(f => (f/1000).toFixed(1)).join(' · ') : '',
-								eon.mappedFreqs && eon.mappedFreqs.length ? 'Mapped: ' + eon.mappedFreqs.map(p => (p.tuned/1000).toFixed(1) + '→' + (p.other/1000).toFixed(1)).join(' ') : '',
+								eon.af && eon.af.length ? 'AF: ' + eon.af.map(f => formatAfFreq(null, f)).join(' · ') : '',
+								eon.mappedFreqs && eon.mappedFreqs.length ? 'Mapped: ' + eon.mappedFreqs.map(p => formatAfFreq(null, p.tuned) + '→' + formatAfFreq(null, p.other)).join(' ') : '',
 								eon.ptyOn !== undefined ? 'PTY: ' + eon.ptyOn : '',
 								eon.pinDay ? 'PIN: day ' + eon.pinDay + ' ' + String(eon.pinHour).padStart(2,'0') + ':' + String(eon.pinMinute).padStart(2,'0') : '',
+								eon.lsn !== undefined ? 'LSN: ' + eon.lsn + (eon.lsIls ? ' ILS' : '') + (eon.lsEg ? ' EG' : '') + (eon.lsLa ? ' LA' : '') : '',
 							].filter(Boolean).join('  |  ')">
 							<span v-if="eon.tp" style="color:#4fc3f7;margin-right:2px;" title="Traffic Programme">TP</span>
 							<span v-if="eon.ta" style="color:#ef9a9a;margin-right:2px;" title="Traffic Announcement active">TA</span>

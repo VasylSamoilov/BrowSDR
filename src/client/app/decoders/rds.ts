@@ -41,6 +41,13 @@ export const rdsMethods = {
 	rdsActive(this: AppInstance) {
 		return this.rds.stations[this.activeVfoIndex] || EMPTY_STATION;
 	},
+	/** Format one AF frequency for display.
+	 *  FM: stored as kHz*10 (>= 8750) → show as MHz e.g. "104.5".
+	 *  LF/MF: stored as plain kHz (≤ 1700) → show with "k" suffix e.g. "153k". */
+	formatAfFreq(_this: unknown, f: number): string {
+		if (f > 1700) return (f / 1000).toFixed(1);   // FM: kHz*10 → MHz
+		return f + 'k';                                 // LF/MF: plain kHz
+	},
 	/** Get all VFOs that have RDS data, as an array with vfoIndex attached */
 	rdsStationList(this: AppInstance): Array<{
 		vfoIndex: number;
@@ -178,6 +185,10 @@ export const rdsMethods = {
 				pinDay: msg.eon.pinDay,
 				pinHour: msg.eon.pinHour,
 				pinMinute: msg.eon.pinMinute,
+				lsn: msg.eon.lsn,
+				lsIls: msg.eon.lsIls,
+				lsEg: msg.eon.lsEg,
+				lsLa: msg.eon.lsLa,
 			};
 		}
 		if (msg.tmcMessage !== undefined) {

@@ -25,6 +25,7 @@ export type RdsStations = Record<
 			mappedFreqs?: Array<{ tuned: number; other: number }>;
 			ptyOn?: number;
 			pinDay?: number; pinHour?: number; pinMinute?: number;
+			lsn?: number; lsIls?: boolean; lsEg?: boolean; lsLa?: boolean;
 		}>;
 	}
 >;

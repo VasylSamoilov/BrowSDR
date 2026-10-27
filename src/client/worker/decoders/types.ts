@@ -158,6 +158,11 @@ export interface RDSMessage {
 		ptyOn?: number;
 		/** PIN of other network day/hour/minute (variant 14) */
 		pinDay?: number; pinHour?: number; pinMinute?: number;
+		/** Linkage Set Number and flags (variant 12) */
+		lsn?: number;   // 12-bit Linkage Set Number
+		lsIls?: boolean; // International Linkage Set
+		lsEg?: boolean;  // Extended Generic flag
+		lsLa?: boolean;  // Linkage Actuator
 	};
 	// eRT (Enhanced RadioText, ODA AID 0x6552)
 	eRT?: string;               // decoded eRT text (up to 128 chars) -- complete message

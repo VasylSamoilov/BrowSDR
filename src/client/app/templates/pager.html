@@ -15,7 +15,7 @@
 		</UiToolHeader>
 		<div class="msgcenter-body" ref="pagerBody">
 			<UiEmptyState v-if="pagerRows().length === 0" variant="msgcenter">
-				No messages yet. Enable a pager protocol (POCSAG, GSC or FLEX) on an NFM VFO and tune to a paging frequency.
+				No messages yet. Enable a pager protocol (POCSAG, GSC or FLEX) on an NFM VFO, or enable RDS paging / TMC on a WFM VFO.
 			</UiEmptyState>
 			<div v-for="(entry, i) in pagerRows()" :key="i" class="msgcenter-entry"
 				:style="[entry.vfoIndex != null ? { borderLeftColor: vfoColor(entry.vfoIndex) } : {}, (entry.protocol === 'flex' && entry.reasmKey && !entry.complete) ? { borderLeftColor: '#ffb74d', opacity: 0.65 } : {}]">
