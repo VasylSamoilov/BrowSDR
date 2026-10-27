@@ -989,8 +989,8 @@ export class RDSDecoder {
 		const mjd = ((b & 0x3) << 15) | (c >> 1);
 		const hours   = ((c & 1) << 4) | (d >> 12);
 		const minutes = (d >> 6) & 0x3f;
-		const offsetHalf = (d >> 1) & 0x1f;
-		const utcOffset  = (d & 1) ? -offsetHalf : offsetHalf;
+		const offsetHalf = d & 0x1f;                         // magnitude in bits [4:0], units of 0.5h
+		const utcOffset  = (d & 0x20) ? -offsetHalf : offsetHalf; // bit 5: 0=+East, 1=-West
 		// MJD to Gregorian calendar (IEC 62106 Annex G)
 		const yp = Math.trunc((mjd - 15078.2) / 365.25);
 		const mp = Math.trunc((mjd - 14956.1 - Math.trunc(yp * 365.25)) / 30.6001);
