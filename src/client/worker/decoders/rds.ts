@@ -324,37 +324,40 @@ const RTPLUS_TYPES: (string | null)[] = [
 export class RDSDecoder {
 	private callback: (msg: RDSMessage) => void;
 	private region: string;
-	private sampleRate: number;
 	// Current group label injected into every callback as srcGroup
 	private currentGroup = '';
 
-	// Direct 57 kHz Costas PLL (independent of pilot, robust to SDR jitter/offset)
-	// Tracks the RDS subcarrier directly from the MPX signal.
-	private scPhase = 0;     // subcarrier oscillator phase (radians, grows monotonically)
-	private scFreq: number;  // current subcarrier frequency estimate (Hz, near 57000)
-	private scStep: number;  // phase step per sample = 2*PI*scFreq/sampleRate
-	private scAgc = 1e-4;    // AGC power estimate for normalized Costas error
-	private scAgcAlpha: number;  // AGC IIR coefficient
-	private scPllBeta: number;   // Costas loop gain
-	private scPllFilter = 0; // PLL loop filter state (1-pole IIR)
-	private scPllAlpha: number;  // PLL loop filter bandwidth
-
-	// 4th-order Butterworth LPF for RDS I and Q channels (2400 Hz)
-	private bqI: BiquadSection[];
-	private bqQ: BiquadSection[];
-
-	// Pilot power tracking (19 kHz BPF output power, for status)
+	// 19 kHz pilot PLL — phasor rotation (zero trig calls per sample)
+	private phasorRe = 1;
+	private phasorIm = 0;
+	private incRe: number;
+	private incIm: number;
+	private pilotAlpha: number;
 	private pilotBpf: BiquadSection;
 	private pilotMixI = 0;
 	private pilotMixQ = 0;
 	private pilotMixAlpha: number;
+	private phasorCount = 0;
+
+	// 4th-order Butterworth LPF for RDS I and Q channels
+	private bqI: BiquadSection[];
+	private bqQ: BiquadSection[];
 
 	// Symbol timing recovery
 	private samplesPerBit: number;
 	private clockPhase = 0;
+	private prevBpskI = 0;
+	private prevBpskQ = 0;
+	private clockPowerI = 0;
+	private clockPowerQ = 0;
+	private clockUsesQ = false;
 	private symbolIndex = 0;
 	private pairEnergy = [0, 0];
-	private pairParity = 0;  // start decoding immediately; self-corrects after 800 half-periods
+	private pairParity = 0;  // start decoding immediately; self-corrects
+	private prevHalfI = 0;
+	private prevHalfQ = 0;
+	private prevSymI = 0;
+	private prevSymQ = 0;
 
 	// Block assembly
 	private shiftReg = 0;
@@ -368,14 +371,7 @@ export class RDSDecoder {
 	private blockValid: boolean[] = [false, false, false, false];
 	private blockCorrected: boolean[] = [false, false, false, false]; // true = passed via BCH correction
 	private blockErrors = 0;
-	private nbUnsync = 0;  // consecutive groups with no valid blocks (group-level sync loss)
-
-	// Integrate-and-dump state
-	private integrator = 0;   // current half-symbol integrator
-	private prevIntegral = 0; // previous half-symbol integrated value (for biphase pair sum)
-	private prevBb = 0;       // previous baseband sample (for zero-crossing clock recovery)
-	private prevSymSign = 0;  // sign of previous symbol (for differential decode)
-	private prevLoClock = 1;  // previous lo_clock value (for dump-on-edge detection)
+	private nbUnsync = 0;  // consecutive groups with no valid blocks
 
 	// BER tracking -- rolling window over last 100 blocks
 	private readonly BER_WINDOW = 100;
@@ -445,16 +441,12 @@ export class RDSDecoder {
 		// Wrap callback to auto-inject srcGroup from the current group being decoded
 		this.callback = (msg: RDSMessage) => callback({ srcGroup: this.currentGroup || undefined, ...msg });
 		this.region = region;
-		this.sampleRate = sampleRate;
 
-		// Direct 57 kHz Costas PLL (osmocom-style, independent of pilot)
-		this.scFreq = 57000;
-		this.scStep = (2 * Math.PI * this.scFreq) / sampleRate;
-		this.scAgcAlpha = Math.min(0.01, (2 * Math.PI * 50) / sampleRate); // ~50 Hz AGC BW
-		this.scPllBeta  = 0.02 * (250000 / sampleRate);  // normalized Costas gain
-		this.scPllAlpha = 0.054 * (250000 / sampleRate); // loop filter BW
-		// 19 kHz BPF for pilot power tracking only
+		const pilotFreq = (2 * Math.PI * RDS_PILOT) / sampleRate;
+		this.incRe = Math.cos(pilotFreq);
+		this.incIm = Math.sin(pilotFreq);
 		this.pilotBpf = makeBandpass(RDS_PILOT, 30, sampleRate);
+		this.pilotAlpha = (2 * Math.PI * 100) / sampleRate;
 		this.pilotMixAlpha = 1 - Math.exp((-2 * Math.PI * 30) / sampleRate);
 		this.samplesPerBit = sampleRate / RDS_BITRATE;
 		this.bqI = makeButterworthLpf4(2400, sampleRate);
@@ -476,102 +468,82 @@ export class RDSDecoder {
 	process(samples: Float32Array): void {
 		for (let i = 0; i < samples.length; i++) {
 			const sample = samples[i];
-
-			// Pilot power tracking (19 kHz BPF, for status only -- not used for demod)
 			const pilotBpf = this.pilotBpf.process(sample);
-			this.pilotMixI += this.pilotMixAlpha * (pilotBpf * pilotBpf - this.pilotMixI);
-			this.pilotPower += 0.0001 * (this.pilotMixI - this.pilotPower);
+			const pllCos = this.phasorRe;
+			const pllSin = this.phasorIm;
 
-			// Direct 57 kHz Costas PLL (osmocom rds_decoder_process approach)
-			// Advance subcarrier oscillator
-			this.scPhase += this.scStep;
-			if (this.scPhase >= 2 * Math.PI) this.scPhase -= 2 * Math.PI;
+			// Quadrature mix + narrow LPF → phase error
+			this.pilotMixI += this.pilotMixAlpha * (pilotBpf * pllCos - this.pilotMixI);
+			this.pilotMixQ += this.pilotMixAlpha * (pilotBpf * pllSin - this.pilotMixQ);
+			const pp = this.pilotMixI * this.pilotMixI + this.pilotMixQ * this.pilotMixQ;
+			// Track pilot power (slow IIR for status reporting)
+			this.pilotPower += 0.0001 * (pp - this.pilotPower);
+			if (pp > 1e-12) {
+				const corr = ((this.pilotMixI * this.pilotMixQ) / pp) * this.pilotAlpha;
+				this.phasorRe += this.phasorIm * corr;
+				this.phasorIm -= this.phasorRe * corr;
+			}
 
-			const scCos = Math.cos(this.scPhase);
-			const scSin = Math.sin(this.scPhase);
+			// Advance phasor by one sample
+			const newRe = this.phasorRe * this.incRe - this.phasorIm * this.incIm;
+			const newIm = this.phasorRe * this.incIm + this.phasorIm * this.incRe;
+			this.phasorRe = newRe;
+			this.phasorIm = newIm;
+			if ((++this.phasorCount & 1023) === 0) {
+				const mag = 1 / Math.sqrt(this.phasorRe * this.phasorRe + this.phasorIm * this.phasorIm);
+				this.phasorRe *= mag; this.phasorIm *= mag;
+			}
 
-			// Downmix to baseband
-			let filtI = sample * scCos;
-			let filtQ = sample * scSin;
+			// Coherent 57 kHz via triple-angle formula
+			const c = pllCos, s = pllSin;
+			const cos3 = 4*c*c*c - 3*c;
+			const sin3 = 3*s - 4*s*s*s;
 
-			// 2400 Hz LPF
+			let filtI = sample * cos3;
 			for (let k = 0; k < this.bqI.length; k++) filtI = this.bqI[k].process(filtI);
+			let filtQ = sample * sin3;
 			for (let k = 0; k < this.bqQ.length; k++) filtQ = this.bqQ[k].process(filtQ);
 
-			// AGC (track signal power, normalize Costas error)
-			const power = filtI * filtI + filtQ * filtQ;
-			this.scAgc += this.scAgcAlpha * (power - this.scAgc);
-			if (this.scAgc < 1e-20) this.scAgc = 1e-20;
+			// Pick the stronger quadrature for clock recovery
+			this.clockPowerI += 0.001 * (filtI * filtI - this.clockPowerI);
+			this.clockPowerQ += 0.001 * (filtQ * filtQ - this.clockPowerQ);
+			if (this.clockPowerQ > this.clockPowerI * 2) this.clockUsesQ = true;
+			else if (this.clockPowerI > this.clockPowerQ * 2) this.clockUsesQ = false;
 
-			// Costas error: bb_i * bb_q / power (normalized)
-			const err = power > 1e-12 ? (filtI * filtQ) / this.scAgc : 0;
-			this.scPllFilter += this.scPllAlpha * (err - this.scPllFilter);
-
-			// Update PLL: correct phase and frequency (osmocom: phase -= beta*err, freq -= 0.5*beta*err)
-			this.scPhase -= this.scPllBeta * this.scPllFilter;
-			this.scStep  -= 0.5 * this.scPllBeta * this.scPllFilter;
-			// Clamp step to 57 kHz ± 12 Hz in rad/sample
-			const minStep = (2 * Math.PI * 56988) / this.sampleRate;
-			const maxStep = (2 * Math.PI * 57012) / this.sampleRate;
-			if (this.scStep > maxStep) this.scStep = maxStep;
-			if (this.scStep < minStep) this.scStep = minStep;
-
-			// When Costas PLL is locked, data is on the I axis.
-			// Use simple differential detection: sign changes = bits.
-			// Sample at half-symbol intervals (symbolPeriod = samplesPerBit/2)
+			const timing  = this.clockUsesQ ? filtQ : filtI;
+			const previous = this.clockUsesQ ? this.prevBpskQ : this.prevBpskI;
 			const symbolPeriod = this.samplesPerBit / 2;
-
-			// Bit clock oscillator free-running at 1187.5 Hz
+			const prevPhase = this.clockPhase;
 			this.clockPhase += 1;
-			// Nudge clock toward zero-crossings of filtI
-			if ((filtI > 0) !== (this.prevBb > 0)) {
-				const d = this.clockPhase % symbolPeriod;
-				const adj = d >= symbolPeriod / 2 ? d - symbolPeriod : d;
-				this.clockPhase -= 0.005 * adj;
+			if (timing > 0 !== previous > 0) {
+				const error = this.clockPhase > symbolPeriod / 2 ? this.clockPhase - symbolPeriod : this.clockPhase;
+				this.clockPhase -= error * 0.05;
 			}
-			this.prevBb = filtI;
-			if (this.clockPhase >= symbolPeriod) this.clockPhase -= symbolPeriod;
-			if (this.clockPhase < 0) this.clockPhase += symbolPeriod;
+			this.prevBpskI = filtI; this.prevBpskQ = filtQ;
 
-			// loClock square wave: +1 for first half, -1 for second half of symbol
-			const loClock = this.clockPhase < symbolPeriod / 2 ? 1 : -1;
-
-			// Coherent integrate-and-dump: accumulate filtI * loClock
-			this.integrator += filtI * loClock;
-
-			// Dump on clock edge (loClock sign change)
-			if (loClock !== this.prevLoClock) {
-				const dump = this.integrator;
-				this.integrator = 0;
-
-				// Biphase frame parity tracking
+			if (this.clockPhase >= symbolPeriod / 2 && prevPhase < symbolPeriod / 2) {
+				const symI = this.prevHalfI - filtI;
+				const symQ = this.prevHalfQ - filtQ;
 				const parity = this.symbolIndex & 1;
-				this.pairEnergy[parity] += dump * dump;
-
-				// Biphase decode: symbolSum = current_dump + prev_dump
-				// bit = sign(symbolSum) changed since last symbol
-				if (parity === this.pairParity) {
-					const symbolSum = dump + this.prevIntegral;
-					const curSign = symbolSum >= 0 ? 1 : -1;
-					const bit = curSign !== this.prevSymSign ? 1 : 0;
-					this.prevSymSign = curSign;
-					this.processBit(bit);
-				}
-				this.prevIntegral = dump;
-				this.symbolIndex++;
-
-				// Re-evaluate biphase frame parity every 800 half-periods
+				this.pairEnergy[parity] += symI * symI + symQ * symQ;
 				if ((this.symbolIndex & 799) === 0) {
 					const nextParity = this.pairEnergy[0] > this.pairEnergy[1] ? 0 : 1;
 					if (nextParity !== this.pairParity) {
 						this.pairParity = nextParity;
-						this.prevSymSign = 0;
-						this.prevIntegral = 0;
+						this.prevSymI = 0; this.prevSymQ = 0;
+						// Switch parity silently -- do NOT lose sync
 					}
 					this.pairEnergy.fill(0);
 				}
+				if (parity === this.pairParity) {
+					const diffProd = symI * this.prevSymI + symQ * this.prevSymQ;
+					this.processBit(diffProd < 0 ? 1 : 0);
+					this.prevSymI = symI; this.prevSymQ = symQ;
+				}
+				this.prevHalfI = filtI; this.prevHalfQ = filtQ;
+				this.symbolIndex++;
 			}
-			this.prevLoClock = loClock;
+			if (this.clockPhase >= symbolPeriod) this.clockPhase -= symbolPeriod;
 		}
 	}
 
@@ -644,7 +616,8 @@ export class RDSDecoder {
 				this.berHistory[this.berHead] = 1;
 				this.berHead = (this.berHead + 1) % this.BER_WINDOW;
 				this.berSum++;
-				if (++this.blockErrors >= 8) {
+				if (++this.blockErrors >= 16) {
+					// Only lose sync after many consecutive bad blocks
 					this.synced = false; this.goodBlocks = 0; this.blockErrors = 0;
 					return;
 				}
@@ -654,8 +627,6 @@ export class RDSDecoder {
 		this.blockIndex = (this.blockIndex + 1) & 3;
 		if (this.blockIndex === 0 && this.goodBlocks >= 2) this.decodeGroup();
 		if (this.blockIndex === 0) {
-			// Group-level sync loss: lose sync only after 4 consecutive groups
-			// with no valid blocks at all (like osmocom's nb_unsync >= SYNC_LOSS_GROUPS)
 			if (this.goodBlocks === 0) {
 				if (++this.nbUnsync >= 4) {
 					this.synced = false; this.nbUnsync = 0;
@@ -1229,7 +1200,7 @@ export class RDSDecoder {
 
 	reset(): void {
 		this.synced = false; this.blockIndex = 0; this.goodBlocks = 0;
-		this.blockErrors = 0; this.blockValid.fill(false); this.blockCorrected.fill(false);
+		this.blockErrors = 0; this.nbUnsync = 0; this.blockValid.fill(false); this.blockCorrected.fill(false);
 		this.bitCount = 0; this.shiftReg = 0;
 		this.pi = 0; this.pty = -1; this.tp = false; this.ta = false;
 		this.psChars.fill(null); this.psStatus.fill(0);
@@ -1241,13 +1212,12 @@ export class RDSDecoder {
 		this.afList = []; this.afCount = 0; this.afLastCount = -1;
 		this.odaMap.clear(); this.eonMap.clear();
 		this.rtPlusGroup = -1; this.rtPlusText1 = ''; this.rtPlusText2 = '';
-		this.scPhase = 0; this.scStep = (2 * Math.PI * 57000) / this.sampleRate;
-		this.scAgc = 1e-4; this.scPllFilter = 0;
-		this.pilotMixI = 0; this.pilotPower = 0; this.pilotBpf.reset();
-		this.clockPhase = 0; this.prevBb = 0;
-		this.integrator = 0; this.prevIntegral = 0; this.prevSymSign = 0; this.prevLoClock = 1;
-		this.symbolIndex = 0; this.pairEnergy.fill(0); this.pairParity = 0;
-		this.nbUnsync = 0;
+		this.phasorRe = 1; this.phasorIm = 0; this.phasorCount = 0;
+		this.pilotMixI = 0; this.pilotMixQ = 0; this.pilotBpf.reset();
+		this.clockPhase = 0; this.prevBpskI = 0; this.prevBpskQ = 0;
+		this.clockPowerI = 0; this.clockPowerQ = 0; this.clockUsesQ = false;
+		this.symbolIndex = 0; this.pairEnergy.fill(0); this.pairParity = -1;
+		this.prevHalfI = 0; this.prevHalfQ = 0; this.prevSymI = 0; this.prevSymQ = 0;
 		// Reset BER and pilot but keep them across reset (station re-tune)
 		this.berHistory.fill(1); this.berHead = 0; this.berSum = this.BER_WINDOW;
 		this.berCorrectedBlocks = 0; this.berTotalBlocks = 0;
