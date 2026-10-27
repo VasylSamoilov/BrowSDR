@@ -124,7 +124,6 @@ export class RDSDecoder {
 	}
 
 	setRegion(region: string): void {
-		if (region === this.region) return;
 		this.region = region;
 		if (this.pi) {
 			this.callback({ piCallsign: region === 'na' ? rbdsCallsign(this.pi) : null });

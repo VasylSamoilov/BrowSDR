@@ -26,12 +26,14 @@
 					</div>
 					<div class="rds-station-meta">
 						<span class="rds-pi" v-if="stn.pi"
-						:title="[
-							'PI: 0x' + stn.pi,
-							stn.piCc ? 'CC: 0x' + stn.piCc.toString(16).toUpperCase() : '',
-							stn.piCoverageName ? 'Coverage: ' + stn.piCoverageName : '',
-							stn.piRef ? 'Ref: 0x' + stn.piRef.toString(16).toUpperCase() : '',
-						].filter(Boolean).join(' | ')">PI:{{ stn.pi }}<template v-if="stn.piCallsign"> ({{ stn.piCallsign }})</template></span>
+						:title="stn.piCallsign
+							? 'PI: 0x' + stn.pi
+							: [
+								'PI: 0x' + stn.pi,
+								stn.piCc ? 'CC: 0x' + stn.piCc.toString(16).toUpperCase() : '',
+								stn.piCoverageName ? 'Coverage: ' + stn.piCoverageName : '',
+								stn.piRef ? 'Ref: 0x' + stn.piRef.toString(16).toUpperCase() : '',
+							].filter(Boolean).join(' | ')">PI:{{ stn.pi }}<template v-if="stn.piCallsign"> ({{ stn.piCallsign }})</template></span>
 						<span class="rds-country" v-if="stn.countryName && stn.countryName !== '--'" :title="'ECC 0x' + stn.ecc.toString(16).toUpperCase()">{{ stn.countryName }}</span>
 						<span class="rds-pty" v-if="stn.ptyLabel" :title="'Programme Type ' + stn.pty + ': ' + stn.ptyLabel">{{ stn.ptyLabel }}</span>
 						<span class="rds-language" v-if="stn.languageName && stn.languageName !== 'Unknown'" :title="'Language Identification Code (LIC): ' + stn.lic">{{ stn.languageName }}</span>
