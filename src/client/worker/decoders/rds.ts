@@ -1102,7 +1102,8 @@ export class RDSDecoder {
 	private pagAbFlag = -1;
 	private pagAssembling = false;
 	private pagAddress = 0;
-	private pagMsgType = '';   // 'tone'|'num10'|'num18'|'alpha'
+	private pagAddrFmt = '';
+	private pagMsgType = '';   // 'tone'|'num10'|'num18'|'intl15'|'alpha'|'functions'
 	private pagMsg = '';
 	private pagExpectedPsac = -1;
 
@@ -1132,16 +1133,32 @@ export class RDSDecoder {
 		}
 		this.pagAbFlag = abFlag;
 
-		const addr = this.pagUnpackAddr(c, (d >> 8) & 0xff);
-		const addrFmt = `${String(Math.trunc(addr / 10000)).padStart(2, '0')}-${String(addr % 10000).padStart(4, '0')}`;
-		const ctrl = d & 0xff;
+		// Address groups carry Y1Y2-Z1Z2Z3Z4 in blocks C+D[15:8].
+		// Data groups carry message digits/chars in blocks C and D -- do NOT
+		// unpack an address from them. Store addrFmt when we see the address group
+		// and use this.pagAddrFmt in the data group callbacks.
+		const isAddrGroup = (psac === 0x0 || psac === 0x1 || psac === 0x2 ||
+		                     psac === 0x4 || psac === 0x7 || psac === 0x8);
+
+		let addr = 0;
+		if (isAddrGroup) {
+			addr = this.pagUnpackAddr(c, (d >> 8) & 0xff);
+			this.pagAddrFmt = `${String(Math.trunc(addr / 10000)).padStart(2, '0')}-${String(addr % 10000).padStart(4, '0')}`;
+		}
 
 		switch (psac) {
-			case 0x0: { // Tone-only: single group, complete
-				this.callback({ paging: { address: addr, type: 'tone', data: '', addrFmt } });
+			case 0x0: { // Tone-only: single group, complete (PSAC=0000)
+				this.callback({ paging: { address: addr, type: 'tone', data: '', addrFmt: this.pagAddrFmt } });
 				break;
 			}
-			case 0x2: { // 10-digit numeric: address group
+			case 0x1: { // Functions address group (PSAC=0001) -- log, skip data
+				this.pagAddress = addr;
+				this.pagMsgType = 'functions';
+				this.pagAssembling = true;
+				this.pagExpectedPsac = 0x2; // functions data uses PSAC=2/3
+				break;
+			}
+			case 0x2: { // 10-digit numeric: address group (PSAC=0010)
 				const n2 = [((d >> 4) & 0xf), d & 0xf];
 				this.pagAddress = addr;
 				this.pagMsg = this.pagBcd(n2);
@@ -1150,15 +1167,15 @@ export class RDSDecoder {
 				this.pagExpectedPsac = 0x3;
 				break;
 			}
-			case 0x3: { // 10-digit numeric: data group (8 more digits)
+			case 0x3: { // 10-digit numeric: data group (PSAC=0011)
 				if (!this.pagAssembling || this.pagMsgType !== 'num10') break;
 				const nibs = [(c>>12)&0xf,(c>>8)&0xf,(c>>4)&0xf,c&0xf,(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,d&0xf];
 				this.pagMsg += this.pagBcd(nibs);
 				this.pagAssembling = false;
-				this.callback({ paging: { address: this.pagAddress, type: 'num10', data: this.pagMsg.trim(), addrFmt } });
+				this.callback({ paging: { address: this.pagAddress, type: 'num10', data: this.pagMsg.trim(), addrFmt: this.pagAddrFmt } });
 				break;
 			}
-			case 0x4: { // 18-digit numeric: address group
+			case 0x4: { // 18-digit numeric: address group (PSAC=0100)
 				const n2 = [((d >> 4) & 0xf), d & 0xf];
 				this.pagAddress = addr;
 				this.pagMsg = this.pagBcd(n2);
@@ -1168,40 +1185,49 @@ export class RDSDecoder {
 				break;
 			}
 			case 0x5:
-			case 0x6: { // 18-digit numeric: data groups
+			case 0x6: { // 18-digit numeric: data groups (PSAC=0101/0110)
 				if (!this.pagAssembling || this.pagMsgType !== 'num18') break;
 				if (psac !== this.pagExpectedPsac) break;
 				const nibs = [(c>>12)&0xf,(c>>8)&0xf,(c>>4)&0xf,c&0xf,(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,d&0xf];
 				this.pagMsg += this.pagBcd(nibs);
 				if (psac === 0x6) {
 					this.pagAssembling = false;
-					this.callback({ paging: { address: this.pagAddress, type: 'num18', data: this.pagMsg.trim(), addrFmt } });
+					this.callback({ paging: { address: this.pagAddress, type: 'num18', data: this.pagMsg.trim(), addrFmt: this.pagAddrFmt } });
 				} else {
 					this.pagExpectedPsac = 0x6;
 				}
 				break;
 			}
-			case 0x8: { // Alpha: address group
+			case 0x7: { // INTL15: 15-digit international numeric address group (PSAC=0111)
+				// Address + first 2 digits of message in d[7:0]
+				const n2 = [((d >> 4) & 0xf), d & 0xf];
+				this.pagAddress = addr;
+				this.pagMsg = this.pagBcd(n2);
+				this.pagMsgType = 'intl15';
+				this.pagAssembling = true;
+				this.pagExpectedPsac = 0x5; // shares data groups with num18
+				break;
+			}
+			case 0x8: { // Alpha: address group (PSAC=1000)
 				this.pagAddress = addr;
 				this.pagMsg = '';
 				this.pagMsgType = 'alpha';
 				this.pagAssembling = true;
 				this.pagExpectedPsac = 0x9;
-				void ctrl;
 				break;
 			}
-			case 0xf: { // Alpha: end-of-message (last data group)
+			case 0xf: { // Alpha: end-of-message group (PSAC=1111)
 				if (!this.pagAssembling || this.pagMsgType !== 'alpha') break;
-				// 4 chars from blocks C and D
+				// 4 ASCII chars from blocks C and D
 				const chars = [(c>>8)&0xff, c&0xff, (d>>8)&0xff, d&0xff];
 				this.pagMsg += chars.map(b => b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '').join('');
 				this.pagMsg = this.pagMsg.trimEnd();
 				this.pagAssembling = false;
-				this.callback({ paging: { address: this.pagAddress, type: 'alpha', data: this.pagMsg, addrFmt } });
+				this.callback({ paging: { address: this.pagAddress, type: 'alpha', data: this.pagMsg, addrFmt: this.pagAddrFmt } });
 				break;
 			}
 			default: {
-				// PSAC 9-14: alpha/vnum data groups (4 chars each)
+				// PSAC 9-14: alpha data groups (4 ASCII chars each)
 				if (psac >= 0x9 && psac <= 0xe && this.pagAssembling && this.pagMsgType === 'alpha') {
 					const chars = [(c>>8)&0xff, c&0xff, (d>>8)&0xff, d&0xff];
 					this.pagMsg += chars.map(b => b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '').join('');
