@@ -59,6 +59,8 @@ export interface POCSAGStatus {
 	 * 'batch' = reading a 16-codeword batch, 'page' = a multi-codeword page is
 	 * in progress. Mirrors the FLEX pipeline-stage chip. */
 	stage?: 'batch' | 'page' | null;
+	/** Last known BER carried forward for display during hunt. */
+	lastBer?: number | null;
 }
 
 /** Narrow structural view of the decoder that the dev-only diagnostics read

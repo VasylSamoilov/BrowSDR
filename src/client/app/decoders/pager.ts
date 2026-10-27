@@ -83,7 +83,7 @@ export const pagerMethods = {
 	},
 	/** List of pager protocols for the per-VFO multi-select. */
 	pagerProtocols(this: AppInstance): Array<{ id: PagerProtocol | 'rds' | 'tmc'; label: string; hasCharsets: boolean }> {
-		return PAGER_PROTOCOLS.map((p) => ({ ...p, hasCharsets: p.id !== 'rds' && p.id !== 'tmc' && hasCharsets(p.id as PagerProtocol) }));
+		return PAGER_PROTOCOLS.map((p) => ({ ...p, hasCharsets: p.id !== 'rds' && p.id !== 'tmc' && hasCharsets(p.id) }));
 	},
 	/** Set the panel's protocol row filter. */
 	setPagerFilter(this: AppInstance, value: string) {

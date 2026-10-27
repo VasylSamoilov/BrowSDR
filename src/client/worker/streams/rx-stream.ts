@@ -49,6 +49,7 @@ import { spectrumSmoothingAlpha } from '@/display/spectrum-rate';
 
 let _streamStarting = false;
 
+// eslint-disable-next-line max-lines-per-function
 export async function startRxStream(
 	backend: Backend,
 	opts: RxStreamOpts,

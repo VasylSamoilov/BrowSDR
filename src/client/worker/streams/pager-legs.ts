@@ -1,7 +1,7 @@
 import type { DspProcessor } from '/wasm/dsp/browsdr_dsp.js';
 import type { VfoParams } from '@/worker/runtime/types';
 import type { PagerProtocol } from '@/worker/decoders/charsets';
-import { PAGER_RX_BANDWIDTH, PAGER_LEG_PROTOCOLS, PAGER_FM_DEVIATION } from '@/worker/decoders/pager-bandwidth';
+import { PAGER_RX_BANDWIDTH, PAGER_LEG_PROTOCOLS } from '@/worker/decoders/pager-bandwidth';
 import type { PagerLegIo } from './pager-legs.types';
 
 /**

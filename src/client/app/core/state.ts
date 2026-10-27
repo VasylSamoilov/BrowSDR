@@ -4,7 +4,7 @@ import type { RadiosondeStatus, Radiosonde } from '@/worker/decoders/radiosonde/
 import type { AcarsStatus, AcarsRecord } from '@/worker/decoders/acars/types';
 import type { AdsbStatus, Aircraft } from '@/worker/decoders/adsb/types';
 import type { POCSAGStatus } from '@/worker/decoders/types';
-import type { RdsStatus } from '@/worker/decoders/rds';
+import type { RdsStatus } from '@/worker/decoders/types';
 import type { GSCStatus } from '@/worker/decoders/types';
 import type { FlexStatus } from '@/worker/decoders/types';
 import type { PagerProtocol } from '@/worker/decoders/charsets';

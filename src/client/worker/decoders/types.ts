@@ -192,3 +192,12 @@ export interface RDSMessage {
 	// Group 7A Radio Paging (EN 50067 Annex M) — gated on rpcGroupDesig > 0
 	paging?: { address: number; addrFmt: string; type: 'tone' | 'num10' | 'num18' | 'alpha' | 'vnum' | 'intl15' | 'functions'; data: string };
 }
+
+export interface RdsStatus {
+	synced: boolean;
+	ber: number;
+	goodBlocks: number;
+	correctedBlocks: number;
+	totalBlocks: number;
+	pilotLevel: number;
+}

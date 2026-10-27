@@ -176,3 +176,63 @@ export interface FlexTimeVote {
 	monoBase: number;
 	lastAbs: number;
 }
+
+// ── Frame constants ─────────────────────────────────────────────────────────
+export const FLEX_WORDS_PER_FRAME = 88;
+export const BCH_CODE_BITS = 31; // BCH(31,21) codeword length; the BER denominator per word
+
+// Word status codes.
+export const WORD_NOT_RECEIVED = 0;
+export const WORD_CLEAN = 1;
+export const WORD_CORRECTED = 2;
+export const WORD_UNCORRECTABLE = 3;
+
+// Vector types (frame.h FLEX_VECTOR_TYPE_*).
+export const VEC_SECURE = 0x0;
+export const VEC_SHORT_INSTR = 0x1;
+export const VEC_SHORT_MESSAGE = 0x2; // Short Message Vector (ARIB 3.9.2), not plain tone
+export const VEC_NUMERIC = 0x3;
+export const VEC_SPECIAL_NUM = 0x4;
+export const VEC_ALPHA = 0x5;
+export const VEC_HEX_BINARY = 0x6;
+export const VEC_NUMBERED_NUM = 0x7;
+
+// Vector word field extraction (frame.h).
+export const VEC_TYPE_SHIFT = 4;
+export const VEC_TYPE_MASK = 0x07;
+export const VEC_START_SHIFT = 7;
+export const VEC_START_MASK = 0x7f;
+export const VEC_LEN_SHIFT = 14;
+export const VEC_LEN_MASK = 0x7f; // alpha/hex 7-bit length
+export const VEC_NUM_LEN_MASK = 0x07; // numeric 3-bit length
+
+// Short-instruction / temp-address (group) decode lives in group.ts.
+
+// Alpha character packing (frame.h FLEX_ALPHA_*): 3x 7-bit chars per word.
+export const ALPHA_CHAR_MASK = 0x7f;
+export const ALPHA_ETX = 0x03;
+export const ALPHA_SIG_MASK = 0x7f;
+
+// Alpha fragment-header fields (frame.h FLEX_ALPHA_HDR_*) in body[0].
+export const ALPHA_HDR_C_SHIFT = 10; // message-continued flag
+export const ALPHA_HDR_F_SHIFT = 11; // 2-bit fragment number (3 = first/only)
+export const ALPHA_HDR_N_SHIFT = 13; // 6-bit message number
+export const ALPHA_HDR_R_SHIFT = 19; // retrieval flag (R), first fragment only
+export const ALPHA_HDR_M_SHIFT = 20; // mail-drop flag (M), first fragment only
+
+// HEX/Binary header-1 fields (frame.h FLEX_HEX_HDR_*) in body[0].
+// HEX K checksum is 12 bits (vs alpha's 10), so F/C/N are shifted up by 2.
+export const HEX_HDR_C_SHIFT = 12; // message-continued flag
+export const HEX_HDR_F_SHIFT = 13; // 2-bit fragment number (3 = first/only)
+export const HEX_HDR_N_SHIFT = 15; // 6-bit message number
+
+// Secure message sub-type (frame.h FLEX_SEC_TYPE_*), in header bits 19-20.
+export const SEC_TYPE_SHIFT = 19;
+export const SEC_TYPE_MASK = 0x3;
+export const SEC_TYPE_ALPHA = 0; // 7-bit alphanumeric payload
+export const SEC_TYPE_BINARY = 2; // binary payload (rendered as hex)
+
+// Numeric BCD extraction and the numbered-numeric header live in numeric.ts.
+// Address classification and capcode decode live in address.ts.
+
+/** A word that failed BCH is a lost word for message purposes. */

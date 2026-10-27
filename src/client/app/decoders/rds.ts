@@ -1,6 +1,6 @@
 import type { RDSMessage } from '@/worker/decoders/types';
 import type { AppInstance } from '@/app/core/receiver.types';
-import type { RdsStatus } from '@/worker/decoders/rds';
+import type { RdsStatus } from '@/worker/decoders/types';
 
 const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false, ta: false, freq: '',
 	ptyn: '', ct: '', ctUtcOffset: 0 as number | null, ecc: -1, countryName: '', lic: -1, languageName: '',
@@ -72,25 +72,37 @@ export const rdsMethods = {
 		const time = new Date().toLocaleTimeString();
 		const freq = freqMhz ? this.formatFreq(freqMhz) + ' MHz' : '';
 		const stn = this._rdsStation(vfoIndex);
-
+		this._applyRdsStnFields(stn, msg, time, freq, vfoIndex);
+		this._applyRdsOdaFields(stn, msg, time, freq, vfoIndex);
+		Promise.resolve(
+			this.$nextTick(() => {
+				const el = this.$refs.rdsBody;
+				if (el) el.scrollTop = el.scrollHeight;
+			}),
+		).catch((error: unknown) => console.error(error));
+	},
+	/** Apply simple station field updates from an RDS message. */
+	_applyRdsStnFields(this: AppInstance, stn: ReturnType<AppInstance['_rdsStation']>, msg: RDSMessage, time: string, freq: string, vfoIndex: number) {
+		this._applyRdsTextFields(stn, msg, time, freq, vfoIndex);
+		this._applyRdsFlagFields(stn, msg, time, freq, vfoIndex);
+	},
+	/** Apply text/display fields: PI, PS, RT, PTYN, CT. */
+	_applyRdsTextFields(this: AppInstance, stn: ReturnType<AppInstance['_rdsStation']>, msg: RDSMessage, time: string, freq: string, vfoIndex: number) {
 		if (msg.pi !== undefined) {
 			stn.pi = msg.pi; stn.freq = freq;
-			if (msg.piCc !== undefined)      stn.piCc = msg.piCc;
-			if (msg.piCoverage !== undefined) stn.piCoverage = msg.piCoverage;
-			if (msg.piCoverageName !== undefined) stn.piCoverageName = msg.piCoverageName;
-			if (msg.piRef !== undefined)     stn.piRef = msg.piRef;
-			if (msg.piCallsign !== undefined) stn.piCallsign = msg.piCallsign;
+			if (msg.piCc !== undefined)           stn.piCc = msg.piCc;
+			if (msg.piCoverage !== undefined)      stn.piCoverage = msg.piCoverage;
+			if (msg.piCoverageName !== undefined)  stn.piCoverageName = msg.piCoverageName;
+			if (msg.piRef !== undefined)           stn.piRef = msg.piRef;
+			if (msg.piCallsign !== undefined)      stn.piCallsign = msg.piCallsign;
 		}
 		if (msg.piCallsign !== undefined && msg.pi === undefined) stn.piCallsign = msg.piCallsign;
 		if (msg.ps !== undefined) {
-			stn.ps = msg.ps;
-			stn.psCharStatus = msg.psCharStatus ?? [];
-			stn.freq = freq;
+			stn.ps = msg.ps; stn.psCharStatus = msg.psCharStatus ?? []; stn.freq = freq;
 			this.rds.log.push({ time, field: 'PS', value: msg.ps, freq, vfoIndex, group: msg.srcGroup });
 		}
 		if (msg.rt !== undefined) {
-			stn.rt = msg.rt;
-			stn.rtCharStatus = msg.rtCharStatus ?? [];
+			stn.rt = msg.rt; stn.rtCharStatus = msg.rtCharStatus ?? [];
 			this.rds.log.push({ time, field: 'RT', value: msg.rt, freq, vfoIndex, group: msg.srcGroup, abFlag: msg.srcAbFlag });
 		}
 		if (msg.ptyn !== undefined) {
@@ -98,160 +110,114 @@ export const rdsMethods = {
 			this.rds.log.push({ time, field: 'PTYN', value: msg.ptyn, freq, vfoIndex, group: msg.srcGroup, abFlag: msg.srcAbFlag });
 		}
 		if (msg.ct !== undefined) {
-			stn.ct = msg.ct;
-			stn.ctUtcOffset = msg.ctUtcOffset ?? null;
+			stn.ct = msg.ct; stn.ctUtcOffset = msg.ctUtcOffset ?? null;
 			this.rds.log.push({ time, field: 'CT', value: msg.ct, freq, vfoIndex, group: msg.srcGroup });
 		}
-		if (msg.pty !== undefined) { stn.pty = msg.pty; stn.ptyLabel = msg.ptyLabel || ''; }
-		if (msg.tp !== undefined) stn.tp = msg.tp;
-		if (msg.ta !== undefined) stn.ta = msg.ta;
-		if (msg.ecc !== undefined) { stn.ecc = msg.ecc; stn.countryName = msg.countryName || ''; if (msg.opc !== undefined) stn.opc = msg.opc; }
-		if (msg.lic !== undefined) { stn.lic = msg.lic; stn.languageName = msg.languageName || ''; }
-		if (msg.af !== undefined) { stn.af = msg.af; if (msg.afMethod) stn.afMethod = msg.afMethod; }
-		if (msg.hasTmc) { stn.hasTmc = true; if (msg.tmcId !== undefined) stn.tmcId = msg.tmcId; }
-		if (msg.la !== undefined) stn.la = msg.la;
-		if (msg.rpc !== undefined) { stn.rpc = msg.rpc; stn.rpcGroupDesig = msg.rpcGroupDesig ?? 0; stn.rpcBattSync = msg.rpcBattSync ?? 0; }
+	},
+	/** Apply flag/metadata fields: PTY, TP, TA, ECC, LIC, AF, DI, PIN, paging, EWS. */
+	_applyRdsFlagFields(this: AppInstance, stn: ReturnType<AppInstance['_rdsStation']>, msg: RDSMessage, time: string, freq: string, vfoIndex: number) {
+		this._applyRdsServiceMeta(stn, msg);
+		this._applyRdsDiPinPaging(stn, msg, time, freq, vfoIndex);
+	},
+	/** Apply service metadata: PTY, TP, TA, LA, MS, AF, TMC flag, ECC, LIC, RPC, broadcaster. */
+	_applyRdsServiceMeta(this: AppInstance, stn: ReturnType<AppInstance['_rdsStation']>, msg: RDSMessage) {
+		if (msg.pty !== undefined)  { stn.pty = msg.pty; stn.ptyLabel = msg.ptyLabel || ''; }
+		if (msg.tp !== undefined)    stn.tp = msg.tp;
+		if (msg.ta !== undefined)    stn.ta = msg.ta;
+		if (msg.la !== undefined)    stn.la = msg.la;
+		if (msg.ms !== undefined)    stn.ms = msg.ms;
+		if (msg.af !== undefined)    { stn.af = msg.af; if (msg.afMethod) stn.afMethod = msg.afMethod; }
+		if (msg.hasTmc)              { stn.hasTmc = true; if (msg.tmcId !== undefined) stn.tmcId = msg.tmcId; }
+		if (msg.ecc !== undefined)   { stn.ecc = msg.ecc; stn.countryName = msg.countryName || ''; if (msg.opc !== undefined) stn.opc = msg.opc; }
+		if (msg.lic !== undefined)   { stn.lic = msg.lic; stn.languageName = msg.languageName || ''; }
+		if (msg.rpc !== undefined)   { stn.rpc = msg.rpc; stn.rpcGroupDesig = msg.rpcGroupDesig ?? 0; stn.rpcBattSync = msg.rpcBattSync ?? 0; }
+		if (msg.broadcasterData !== undefined) stn.broadcasterData = msg.broadcasterData;
+	},
+	/** Apply decoder ID bits, Programme Item Number, paging OPC/PAC, EWS channel. */
+	_applyRdsDiPinPaging(this: AppInstance, stn: ReturnType<AppInstance['_rdsStation']>, msg: RDSMessage, time: string, freq: string, vfoIndex: number) {
+		if (msg.di !== undefined) {
+			stn.di = msg.di;
+			stn.diStereo = msg.diStereo ?? false; stn.diArtHead = msg.diArtHead ?? false;
+			stn.diCompressed = msg.diCompressed ?? false; stn.diDynPty = msg.diDynPty ?? false;
+		}
+		if (msg.pin !== undefined && msg.pinDay !== undefined) {
+			stn.pinDay = msg.pinDay; stn.pinHour = msg.pinHour ?? 0; stn.pinMinute = msg.pinMinute ?? 0;
+		}
 		if (msg.pagingOpc !== undefined) {
-			stn.pagingOpc = msg.pagingOpc;
-			stn.pagingPac = msg.pagingPac ?? 0;
+			stn.pagingOpc = msg.pagingOpc; stn.pagingPac = msg.pagingPac ?? 0;
 			this.rds.log.push({ time, field: 'PAGING-ID', value: `OPC=${msg.pagingOpc} PAC=${msg.pagingPac ?? 0}${msg.pagingPac === 0 ? ' (all areas)' : ''}`, freq, vfoIndex, group: msg.srcGroup });
 		}
 		if (msg.ewsChannel !== undefined) {
 			stn.ewsChannel = msg.ewsChannel;
 			this.rds.log.push({ time, field: 'EWS', value: `Channel ${msg.ewsChannel}`, freq, vfoIndex });
 		}
-		if (msg.broadcasterData !== undefined) {
-			stn.broadcasterData = msg.broadcasterData;
-		}
-		if (msg.ms !== undefined) stn.ms = msg.ms;
-		if (msg.di !== undefined) {
-			stn.di = msg.di;
-			stn.diStereo     = msg.diStereo     ?? false;
-			stn.diArtHead    = msg.diArtHead    ?? false;
-			stn.diCompressed = msg.diCompressed ?? false;
-			stn.diDynPty     = msg.diDynPty     ?? false;
-		}
-		if (msg.pin !== undefined && msg.pinDay !== undefined) {
-			stn.pinDay = msg.pinDay;
-			stn.pinHour = msg.pinHour ?? 0;
-			stn.pinMinute = msg.pinMinute ?? 0;
-		}
+	},
+	/** Apply ODA/advanced field updates: RT+, eRT+, eRT, EON, TMC, paging. */
+	_applyRdsOdaFields(this: AppInstance, stn: ReturnType<AppInstance['_rdsStation']>, msg: RDSMessage, time: string, freq: string, vfoIndex: number) {
+		this._applyRdsRtPlusFields(stn, msg, time, freq, vfoIndex);
+		this._applyRdsEonPagingFields(stn, msg, time, freq, vfoIndex);
+	},
+	/** Apply RT+ and eRT+ tag fields. */
+	_applyRdsRtPlusFields(this: AppInstance, stn: ReturnType<AppInstance['_rdsStation']>, msg: RDSMessage, time: string, freq: string, vfoIndex: number) {
 		if (msg.rtPlusItem1 !== undefined) {
-			stn.rtPlusItem1     = msg.rtPlusItem1 || '';
-			stn.rtPlusItem1Tag  = msg.rtPlusItem1Tag || 0;
-			stn.rtPlusItem1Name = msg.rtPlusItem1Name || '';
-			stn.rtPlusItem2     = msg.rtPlusItem2 || '';
-			stn.rtPlusItem2Tag  = msg.rtPlusItem2Tag || 0;
-			stn.rtPlusItem2Name = msg.rtPlusItem2Name || '';
+			stn.rtPlusItem1 = msg.rtPlusItem1 || ''; stn.rtPlusItem1Tag = msg.rtPlusItem1Tag || 0; stn.rtPlusItem1Name = msg.rtPlusItem1Name || '';
+			stn.rtPlusItem2 = msg.rtPlusItem2 || ''; stn.rtPlusItem2Tag = msg.rtPlusItem2Tag || 0; stn.rtPlusItem2Name = msg.rtPlusItem2Name || '';
 			if (msg.rtPlusRunning !== undefined) stn.rtPlusRunning = msg.rtPlusRunning;
-			if (msg.rtPlusItem1 || msg.rtPlusItem2) {
-				const t1 = msg.rtPlusItem1Name ? `[${msg.rtPlusItem1Name}] ${msg.rtPlusItem1}` : msg.rtPlusItem1 || '';
-				const t2 = msg.rtPlusItem2Name ? `[${msg.rtPlusItem2Name}] ${msg.rtPlusItem2}` : msg.rtPlusItem2 || '';
-				const val = [t1, t2].filter(Boolean).join('  ');
-				this.rds.log.push({ time, field: 'RT+', value: val, freq, vfoIndex, group: msg.srcGroup });
-			}
+			const log = this._rtPlusLogValue(msg.rtPlusItem1Name, msg.rtPlusItem1, msg.rtPlusItem2Name, msg.rtPlusItem2);
+			if (log) this.rds.log.push({ time, field: 'RT+', value: log, freq, vfoIndex, group: msg.srcGroup });
 		}
 		if (msg.eRTPlusItem1 !== undefined) {
-			stn.eRTPlusItem1     = msg.eRTPlusItem1 || '';
-			stn.eRTPlusItem1Tag  = msg.eRTPlusItem1Tag || 0;
-			stn.eRTPlusItem1Name = msg.eRTPlusItem1Name || '';
-			stn.eRTPlusItem2     = msg.eRTPlusItem2 || '';
-			stn.eRTPlusItem2Tag  = msg.eRTPlusItem2Tag || 0;
-			stn.eRTPlusItem2Name = msg.eRTPlusItem2Name || '';
+			stn.eRTPlusItem1 = msg.eRTPlusItem1 || ''; stn.eRTPlusItem1Tag = msg.eRTPlusItem1Tag || 0; stn.eRTPlusItem1Name = msg.eRTPlusItem1Name || '';
+			stn.eRTPlusItem2 = msg.eRTPlusItem2 || ''; stn.eRTPlusItem2Tag = msg.eRTPlusItem2Tag || 0; stn.eRTPlusItem2Name = msg.eRTPlusItem2Name || '';
 			if (msg.eRTPlusRunning !== undefined) stn.eRTPlusRunning = msg.eRTPlusRunning;
-			if (msg.eRTPlusItem1 || msg.eRTPlusItem2) {
-				const t1 = msg.eRTPlusItem1Name ? `[${msg.eRTPlusItem1Name}] ${msg.eRTPlusItem1}` : msg.eRTPlusItem1 || '';
-				const t2 = msg.eRTPlusItem2Name ? `[${msg.eRTPlusItem2Name}] ${msg.eRTPlusItem2}` : msg.eRTPlusItem2 || '';
-				const val = [t1, t2].filter(Boolean).join('  ');
-				this.rds.log.push({ time, field: 'eRT+', value: val, freq, vfoIndex, group: msg.srcGroup });
-			}
+			const log = this._rtPlusLogValue(msg.eRTPlusItem1Name, msg.eRTPlusItem1, msg.eRTPlusItem2Name, msg.eRTPlusItem2);
+			if (log) this.rds.log.push({ time, field: 'eRT+', value: log, freq, vfoIndex, group: msg.srcGroup });
 		}
+		this._applyRdsErtFields(stn, msg, time, freq, vfoIndex);
+	},
+	/** Apply eRT (Enhanced RadioText) complete and partial fields. */
+	_applyRdsErtFields(this: AppInstance, stn: ReturnType<AppInstance['_rdsStation']>, msg: RDSMessage, time: string, freq: string, vfoIndex: number) {
+		if (msg.eRT !== undefined) {
+			stn.eRT = msg.eRT; stn.eRTPartial = '';
+			if (msg.eRTCharStatus) stn.eRTCharStatus = msg.eRTCharStatus;
+			this.rds.log.push({ time, field: 'eRT', value: msg.eRT, freq, vfoIndex, group: msg.srcGroup });
+		}
+		if (msg.eRTPartial !== undefined) {
+			stn.eRTPartial = msg.eRTPartial;
+			if (msg.eRTCharStatus) stn.eRTCharStatus = msg.eRTCharStatus;
+		}
+	},
+	/** Build RT+/eRT+ log value string from tag names and text. Returns null if nothing to log. */
+	_rtPlusLogValue(_this: unknown, n1: string | undefined, t1: string | undefined, n2: string | undefined, t2: string | undefined): string | null {
+		if (!t1 && !t2) return null;
+		const s1 = n1 ? `[${n1}] ${t1 ?? ''}` : t1 ?? '';
+		const s2 = n2 ? `[${n2}] ${t2 ?? ''}` : t2 ?? '';
+		return [s1, s2].filter(Boolean).join('  ') || null;
+	},
+	/** Apply EON, TMC, and paging fields. */
+	_applyRdsEonPagingFields(this: AppInstance, stn: ReturnType<AppInstance['_rdsStation']>, msg: RDSMessage, time: string, freq: string, vfoIndex: number) {
 		if (msg.eon !== undefined) {
 			const eonExtra: string[] = [];
 			if (msg.eon.mappedFreqs?.length) eonExtra.push(`MF:${msg.eon.mappedFreqs.length}`);
 			if (msg.eon.ptyOn !== undefined) eonExtra.push(`PTY:${msg.eon.ptyOn}`);
-			if (msg.eon.pinDay) eonExtra.push(`PIN:day${msg.eon.pinDay} ${String(msg.eon.pinHour).padStart(2,'0')}:${String(msg.eon.pinMinute).padStart(2,'0')}`);
-			const eonVal = `PI:${msg.eon.pi}${msg.eon.ps ? ' PS:' + msg.eon.ps.trim() : ''}${eonExtra.length ? ' ' + eonExtra.join(' ') : ''}`;
-			this.rds.log.push({ time, field: 'EON', value: eonVal, freq, vfoIndex, group: msg.srcGroup });
-			// Store EON network in station card map
-			stn.eonNetworks[msg.eon.pi] = {
-				pi: msg.eon.pi,
-				ps: msg.eon.ps,
-				tp: msg.eon.tp,
-				ta: msg.eon.ta,
-				af: msg.eon.af,
-				mappedFreqs: msg.eon.mappedFreqs,
-				ptyOn: msg.eon.ptyOn,
-				pinDay: msg.eon.pinDay,
-				pinHour: msg.eon.pinHour,
-				pinMinute: msg.eon.pinMinute,
-				lsn: msg.eon.lsn,
-				lsIls: msg.eon.lsIls,
-				lsEg: msg.eon.lsEg,
-				lsLa: msg.eon.lsLa,
-			};
+			if (msg.eon.pinDay) eonExtra.push(`PIN:day${msg.eon.pinDay} ${String(msg.eon.pinHour).padStart(2, '0')}:${String(msg.eon.pinMinute).padStart(2, '0')}`);
+			this.rds.log.push({ time, field: 'EON', value: `PI:${msg.eon.pi}${msg.eon.ps ? ' PS:' + msg.eon.ps.trim() : ''}${eonExtra.length ? ' ' + eonExtra.join(' ') : ''}`, freq, vfoIndex, group: msg.srcGroup });
+			stn.eonNetworks[msg.eon.pi] = { pi: msg.eon.pi, ps: msg.eon.ps, tp: msg.eon.tp, ta: msg.eon.ta, af: msg.eon.af, mappedFreqs: msg.eon.mappedFreqs, ptyOn: msg.eon.ptyOn, pinDay: msg.eon.pinDay, pinHour: msg.eon.pinHour, pinMinute: msg.eon.pinMinute, lsn: msg.eon.lsn, lsIls: msg.eon.lsIls, lsEg: msg.eon.lsEg, lsLa: msg.eon.lsLa };
 		}
 		if (msg.tmcMessage !== undefined) {
 			const tm = msg.tmcMessage;
 			const text = `EVT:${tm.event} LOC:${tm.location} ${tm.direction === 'negative' ? '◄' : '►'} EXT:${tm.extent}${tm.diversion ? ' DIV' : ''}`;
 			this.rds.log.push({ time, field: 'TMC', value: text, freq, vfoIndex, group: msg.srcGroup });
-			this.pager.log.push({
-				protocol: 'tmc',
-				time, freq, vfoIndex,
-				capcode: `LOC:${tm.location}`,
-				type: tm.multi ? 'multi' : 'single',
-				text,
-				tmcEvent:     tm.event,
-				tmcLocation:  tm.location,
-				tmcDirection: tm.direction,
-				tmcExtent:    tm.extent,
-				tmcDuration:  tm.duration,
-				tmcDiversion: tm.diversion,
-			});
+			this.pager.log.push({ protocol: 'tmc', time, freq, vfoIndex, capcode: `LOC:${tm.location}`, type: tm.multi ? 'multi' : 'single', text, tmcEvent: tm.event, tmcLocation: tm.location, tmcDirection: tm.direction, tmcExtent: tm.extent, tmcDuration: tm.duration, tmcDiversion: tm.diversion });
 			this.pager.panelOpen = true;
-		}
-		if (msg.eRT !== undefined) {
-			const stn = this.rds.stations[msg.pi ?? 0] ?? (this.rds.stations[msg.pi ?? 0] = { ...EMPTY_STATION, freq, vfoIndex } as typeof EMPTY_STATION & { freq: string; vfoIndex: number });
-			stn.eRT = msg.eRT;
-			stn.eRTPartial = '';  // clear partial once complete
-			if (msg.eRTCharStatus) stn.eRTCharStatus = msg.eRTCharStatus;
-			this.rds.log.push({ time, field: 'eRT', value: msg.eRT, freq, vfoIndex, group: msg.srcGroup });
-		}
-		if (msg.eRTPartial !== undefined) {
-			const stn = this.rds.stations[msg.pi ?? 0];
-			if (stn) {
-				stn.eRTPartial = msg.eRTPartial;
-				if (msg.eRTCharStatus) stn.eRTCharStatus = msg.eRTCharStatus;
-			}
 		}
 		if (msg.paging !== undefined) {
 			const p = msg.paging;
-			const label = p.type === 'tone' ? 'TONE' : p.type.toUpperCase();
-			const val = p.type === 'tone' ? p.addrFmt : `${p.addrFmt}  ${p.data}`;
-			this.rds.log.push({ time, field: `PAG-${label}`, value: val, freq, vfoIndex, group: msg.srcGroup });
-			// Also push into the shared pager message center
-			const stn = this.rds.stations[msg.pi ?? 0];
-			const stationTag = stn?.pi ? `RDS ${stn.pi}${stn.ps.trim() ? ' ' + stn.ps.trim() : ''}` : `RDS ${freq}`;
-			this.pager.log.push({
-				protocol: 'rds',
-				time,
-				freq,
-				vfoIndex,
-				capcode: p.addrFmt,
-				type: p.type === 'numeric-10' ? 'numeric' : p.type === 'numeric-18' ? 'numeric' : p.type,
-				text: p.type === 'tone' ? '' : (p.data ?? ''),
-				detectDebug: stationTag,
-			});
+			this.rds.log.push({ time, field: `PAG-${p.type === 'tone' ? 'TONE' : p.type.toUpperCase()}`, value: p.type === 'tone' ? p.addrFmt : `${p.addrFmt}  ${p.data}`, freq, vfoIndex, group: msg.srcGroup });
+			const stationTag = stn.pi ? `RDS ${stn.pi}${stn.ps.trim() ? ' ' + stn.ps.trim() : ''}` : `RDS ${freq}`;
+			this.pager.log.push({ protocol: 'rds', time, freq, vfoIndex, capcode: p.addrFmt, type: p.type === 'tone' ? 'tone' : 'numeric', text: p.type === 'tone' ? '' : (p.data ?? ''), detectDebug: stationTag });
 			this.pager.panelOpen = true;
 		}
-
-		// Auto-scroll log
-		Promise.resolve(
-			this.$nextTick(() => {
-				const el = this.$refs.rdsBody;
-				if (el) el.scrollTop = el.scrollHeight;
-			}),
-		).catch((error: unknown) => console.error(error));
 	},
 	/** Region change: update decoder AND auto-set de-emphasis (NA→75µs, EU→50µs). */
 	setRdsRegion(this: AppInstance, vfoIndex: number, region: string) {

@@ -35,64 +35,7 @@ import type { FlexPhaseData, FlexFiw, FlexMessage } from './types';
 import type { Codepage } from '@/worker/decoders/charsets';
 import type { ReasmSlot, FlexNetInfo, GroupEvent, GroupSlot, CapClass, HexHeader, DedupStore, FlexTimeVote } from './frame.types';
 
-const FLEX_WORDS_PER_FRAME = 88;
-const BCH_CODE_BITS = 31; // BCH(31,21) codeword length; the BER denominator per word
-
-// Word status codes.
-const WORD_NOT_RECEIVED = 0;
-const WORD_CLEAN = 1;
-const WORD_CORRECTED = 2;
-const WORD_UNCORRECTABLE = 3;
-
-// Vector types (frame.h FLEX_VECTOR_TYPE_*).
-const VEC_SECURE = 0x0;
-const VEC_SHORT_INSTR = 0x1;
-const VEC_SHORT_MESSAGE = 0x2; // Short Message Vector (ARIB 3.9.2), not plain tone
-const VEC_NUMERIC = 0x3;
-const VEC_SPECIAL_NUM = 0x4;
-const VEC_ALPHA = 0x5;
-const VEC_HEX_BINARY = 0x6;
-const VEC_NUMBERED_NUM = 0x7;
-
-// Vector word field extraction (frame.h).
-const VEC_TYPE_SHIFT = 4;
-const VEC_TYPE_MASK = 0x07;
-const VEC_START_SHIFT = 7;
-const VEC_START_MASK = 0x7f;
-const VEC_LEN_SHIFT = 14;
-const VEC_LEN_MASK = 0x7f; // alpha/hex 7-bit length
-const VEC_NUM_LEN_MASK = 0x07; // numeric 3-bit length
-
-// Short-instruction / temp-address (group) decode lives in group.ts.
-
-// Alpha character packing (frame.h FLEX_ALPHA_*): 3x 7-bit chars per word.
-const ALPHA_CHAR_MASK = 0x7f;
-const ALPHA_ETX = 0x03;
-const ALPHA_SIG_MASK = 0x7f;
-
-// Alpha fragment-header fields (frame.h FLEX_ALPHA_HDR_*) in body[0].
-const ALPHA_HDR_C_SHIFT = 10; // message-continued flag
-const ALPHA_HDR_F_SHIFT = 11; // 2-bit fragment number (3 = first/only)
-const ALPHA_HDR_N_SHIFT = 13; // 6-bit message number
-const ALPHA_HDR_R_SHIFT = 19; // retrieval flag (R), first fragment only
-const ALPHA_HDR_M_SHIFT = 20; // mail-drop flag (M), first fragment only
-
-// HEX/Binary header-1 fields (frame.h FLEX_HEX_HDR_*) in body[0].
-// HEX K checksum is 12 bits (vs alpha's 10), so F/C/N are shifted up by 2.
-const HEX_HDR_C_SHIFT = 12; // message-continued flag
-const HEX_HDR_F_SHIFT = 13; // 2-bit fragment number (3 = first/only)
-const HEX_HDR_N_SHIFT = 15; // 6-bit message number
-
-// Secure message sub-type (frame.h FLEX_SEC_TYPE_*), in header bits 19-20.
-const SEC_TYPE_SHIFT = 19;
-const SEC_TYPE_MASK = 0x3;
-const SEC_TYPE_ALPHA = 0; // 7-bit alphanumeric payload
-const SEC_TYPE_BINARY = 2; // binary payload (rendered as hex)
-
-// Numeric BCD extraction and the numbered-numeric header live in numeric.ts.
-// Address classification and capcode decode live in address.ts.
-
-/** A word that failed BCH is a lost word for message purposes. */
+import { FLEX_WORDS_PER_FRAME, BCH_CODE_BITS, WORD_NOT_RECEIVED, WORD_CLEAN, WORD_CORRECTED, WORD_UNCORRECTABLE, VEC_SECURE, VEC_SHORT_INSTR, VEC_SHORT_MESSAGE, VEC_NUMERIC, VEC_SPECIAL_NUM, VEC_ALPHA, VEC_HEX_BINARY, VEC_NUMBERED_NUM, VEC_TYPE_SHIFT, VEC_TYPE_MASK, VEC_START_SHIFT, VEC_START_MASK, VEC_LEN_SHIFT, VEC_LEN_MASK, VEC_NUM_LEN_MASK, ALPHA_CHAR_MASK, ALPHA_ETX, ALPHA_SIG_MASK, ALPHA_HDR_C_SHIFT, ALPHA_HDR_F_SHIFT, ALPHA_HDR_N_SHIFT, ALPHA_HDR_R_SHIFT, ALPHA_HDR_M_SHIFT, HEX_HDR_C_SHIFT, HEX_HDR_F_SHIFT, HEX_HDR_N_SHIFT, SEC_TYPE_SHIFT, SEC_TYPE_MASK, SEC_TYPE_ALPHA, SEC_TYPE_BINARY } from './frame.types';
 function wordLost(status: number): boolean {
 	return status === WORD_UNCORRECTABLE || status === WORD_NOT_RECEIVED;
 }

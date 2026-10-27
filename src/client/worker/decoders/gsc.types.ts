@@ -59,6 +59,8 @@ export interface GSCStatus {
 	 * 'data' = collecting a data batch, 'voice' = a voice-alert page is active.
 	 * Mirrors the FLEX pipeline-stage chip. */
 	stage?: 'data' | 'voice' | null;
+	/** Last known BER carried forward for display during hunt. */
+	lastBer?: number | null;
 }
 
 /** GSC receiver sync state. */

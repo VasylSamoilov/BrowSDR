@@ -4,7 +4,7 @@ import type { RadiosondeMessage } from '@/worker/decoders/radiosonde/types';
 import type { AcarsMessage } from '@/worker/decoders/acars/types';
 import type { AdsbMessage } from '@/worker/decoders/adsb/types';
 import type { VfoParams } from './types';
-import type { RDSMessage, Rtl433Message } from '@/worker/decoders/types';
+import type { RDSMessage, RdsStatus, Rtl433Message } from '@/worker/decoders/types';
 import type { DSDStatus } from '@/worker/decoders/dsd/types';
 import type { PagerProtocol } from '@/worker/decoders/charsets';
 
@@ -23,7 +23,7 @@ export type DspOutput =
 	| BleMessage
 	| AcarsMessage
 	| { type: 'rds'; msg: RDSMessage }
-	| { type: 'rds_status'; status: import('./../../worker/decoders/rds').RdsStatus }
+	| { type: 'rds_status'; status: RdsStatus }
 	| { type: 'dsd_status'; status: DSDStatus }
 	| { type: 'dsp_debug_log'; level: 'log' | 'warn' | 'error'; message: string }
 	| { type: 'error'; error: string; inputSamples?: number; chunkId?: number }

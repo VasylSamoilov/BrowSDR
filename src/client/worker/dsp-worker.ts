@@ -12,6 +12,7 @@ import { DSDStream } from './decoders/dsd/dsd-stream';
 import { DSD_IF_RATE } from '@/worker/decoders/dsd/constants';
 import type { DSDStatus } from './decoders/dsd/types';
 import { RDSDecoder } from './decoders/rds';
+import type { RdsStatus } from './decoders/types';
 import { LatestStatus } from './runtime/latest-status';
 import { AdsbStream } from './decoders/adsb';
 import { Rtl433Stream } from './decoders/rtl433';
@@ -130,7 +131,7 @@ let systemSampleRate = 2000000;
 // DSD decoder state (per-worker, one DSD decoder per VFO)
 let dsdStream: DSDStream | null = null;
 const dsdStatus = new LatestStatus<DSDStatus>((status) => self.postMessage({ type: 'dsd_status', status }));
-const rdsStatusThrottle = new LatestStatus<import('./decoders/rds').RdsStatus>((status) => self.postMessage({ type: 'rds_status', status }), 500);
+const rdsStatusThrottle = new LatestStatus<RdsStatus>((status) => self.postMessage({ type: 'rds_status', status }), 500);
 
 self.onmessage = async (e: MessageEvent<DspInput>) => {
 	const msg = e.data;
