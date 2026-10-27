@@ -336,9 +336,10 @@ export const _ODA_AIDS: Record<number, string> = {
 // Returns frequency in units of kHz*10 (i.e. 100 Hz) for FM.
 // LF/MF frequencies use decodeLfMfCode() instead.
 // Codes 224-249 = count codes; 250 = LF/MF follows; 205 = filler -- all handled in processAfPair.
-export function decodeAfCode(code: number, region: string): number | null {
+// RBDS (NRSC-4-B) retains the IEC 62106 100 kHz FM encoding; the North American
+// channel raster does not change how AF codes are encoded.
+export function decodeAfCode(code: number, _region?: string): number | null {
 	if (code >= 1 && code <= 204) {
-		if (region === 'na') return Math.round((879 + (code - 4) * 2) * 100);
 		return Math.round((875 + code) * 100);
 	}
 	return null;

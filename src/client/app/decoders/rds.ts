@@ -94,7 +94,9 @@ export const rdsMethods = {
 	/** Get (or create) the per-VFO RDS station state */
 	_rdsStation(this: AppInstance, vfoIndex: number) {
 		if (!this.rds.stations[vfoIndex]) {
-			this.rds.stations[vfoIndex] = { ...EMPTY_STATION };
+			// Spread EMPTY_STATION but allocate a fresh eonNetworks object so
+			// stations don't share the same mutable reference.
+			this.rds.stations[vfoIndex] = { ...EMPTY_STATION, eonNetworks: {} };
 		}
 		return this.rds.stations[vfoIndex];
 	},

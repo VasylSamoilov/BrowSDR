@@ -407,7 +407,8 @@ function decodeRemotePocsag(
 				backend._remoteHostPocsagStatusCb(clientId, index, params.freq, dec.getStatus());
 			}
 		}
-	} else if (state.pocsagDecoders[index]) {
+	} else if (!params.pocsag && state.pocsagDecoders[index]) {
+		// Protocol disabled: tear down decoder and reset its status.
 		state.pocsagDecoders[index] = null;
 		if (state.pocsagStatusAt) state.pocsagStatusAt[index] = undefined as unknown as number;
 	}
@@ -433,7 +434,8 @@ function decodeRemoteGsc(
 				backend._remoteHostGscStatusCb(clientId, index, params.freq, gdec.getStatus());
 			}
 		}
-	} else if (state.gscDecoders && state.gscDecoders[index]) {
+	} else if (state.gscDecoders && !params.gsc && state.gscDecoders[index]) {
+		// Protocol disabled: tear down decoder and reset its status.
 		state.gscDecoders[index] = null;
 		if (state.gscStatusAt) state.gscStatusAt[index] = undefined as unknown as number;
 	}
@@ -459,7 +461,8 @@ function decodeRemoteFlex(
 				backend._remoteHostFlexStatusCb(clientId, index, params.freq, fdec.getStatus());
 			}
 		}
-	} else if (state.flexDecoders && state.flexDecoders[index]) {
+	} else if (state.flexDecoders && !params.flex && state.flexDecoders[index]) {
+		// Protocol disabled: tear down decoder and reset its status.
 		state.flexDecoders[index] = null;
 		if (state.flexStatusAt) state.flexStatusAt[index] = undefined as unknown as number;
 	}

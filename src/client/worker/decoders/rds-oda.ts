@@ -78,7 +78,18 @@ export class RDSOdaDecoder {
 		if (this.rtPlusText1 || this.rtPlusText2) {
 			this.rtPlusText1 = '';
 			this.rtPlusText2 = '';
-			this.cb({ rtPlusItem1: undefined, rtPlusItem2: undefined });
+			// Send empty strings (not undefined) so the app-side guard
+			// (msg.rtPlusItem1 !== undefined) passes and the station card clears.
+			this.cb({
+				rtPlusRunning: false,
+				rtPlusToggle: this.rtPlusToggle >= 0 ? this.rtPlusToggle : 0,
+				rtPlusItem1: '',
+				rtPlusItem1Tag: 0,
+				rtPlusItem1Name: '',
+				rtPlusItem2: '',
+				rtPlusItem2Tag: 0,
+				rtPlusItem2Name: '',
+			});
 		}
 	}
 
@@ -94,7 +105,10 @@ export class RDSOdaDecoder {
 
 	private decodeERT(blockB: number, bv: boolean[]): void {
 		const blocks = this.getBlocks();
-		const abFlag = (blockB >> 4) & 1;
+		// eRT uses a 5-bit segment address (bits [4:0] of block B), giving 32
+		// segments (0-31) of 4 bytes each = 128 bytes maximum. The A/B flag is
+		// carried in block B bit 5, above the segment address.
+		const abFlag = (blockB >> 5) & 1;
 		if (abFlag !== this.eRTAbFlag) {
 			this.eRTAbFlag = abFlag;
 			this.eRTBytes.fill(0);
@@ -102,7 +116,7 @@ export class RDSOdaDecoder {
 			this.eRTQuality.fill(0);
 			this.lastERT = '';
 		}
-		const seg = blockB & 0x0f;
+		const seg = blockB & 0x1f;
 		const base = seg * 4;
 		if (base + 3 >= 128) return;
 		const wb = (pos: number, val: number, q: number) => {
@@ -309,10 +323,10 @@ export class RDSOdaDecoder {
 			this.cb({
 				rtPlusRunning: running === 1,
 				rtPlusToggle: toggle,
-				rtPlusItem1: tags.t1 || undefined,
+				rtPlusItem1: tags.t1,
 				rtPlusItem1Tag: tags.type1 || undefined,
 				rtPlusItem1Name: tags.type1 > 0 ? tags.name1 : undefined,
-				rtPlusItem2: tags.t2 || undefined,
+				rtPlusItem2: tags.t2,
 				rtPlusItem2Tag: tags.type2 || undefined,
 				rtPlusItem2Name: tags.type2 > 0 ? tags.name2 : undefined,
 			});
@@ -326,7 +340,7 @@ export class RDSOdaDecoder {
 		const runningChanged = this.eRTPlusRunning !== -1 && running !== this.eRTPlusRunning;
 		this.eRTPlusToggle = toggle;
 		this.eRTPlusRunning = running;
-		const src = this.eRTPlusCb === 1 ? '' : this.getLastRt();
+		const src = this.eRTPlusCb === 1 ? this.lastERT : this.getLastRt();
 		const tags = this._rtPlusDecodeTags(b, c, d, running, src);
 		if (
 			tags.t1 !== this.eRTPlusText1 ||
@@ -349,10 +363,10 @@ export class RDSOdaDecoder {
 			this.cb({
 				eRTPlusRunning: running === 1,
 				eRTPlusToggle: toggle,
-				eRTPlusItem1: tags.t1 || undefined,
+				eRTPlusItem1: tags.t1,
 				eRTPlusItem1Tag: tags.type1 || undefined,
 				eRTPlusItem1Name: tags.type1 > 0 ? tags.name1 : undefined,
-				eRTPlusItem2: tags.t2 || undefined,
+				eRTPlusItem2: tags.t2,
 				eRTPlusItem2Tag: tags.type2 || undefined,
 				eRTPlusItem2Name: tags.type2 > 0 ? tags.name2 : undefined,
 			});
