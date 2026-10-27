@@ -4,6 +4,7 @@
  * A 21-bit address word is classified by range into short / long (LA1-LA4) /
  * special (reserved, info-service/maildrop, network, temporary group, operator
  * message), and short/long capcodes are decoded by the inverse of the TX encode
+ * formulas. A faithful port of osmocom flex_classify_addr_word + address decode.
  */
 
 import type { CapClass } from './frame.types';

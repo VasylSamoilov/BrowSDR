@@ -3,6 +3,7 @@
  * the BCH systematic re-encode used for the data checksum, and the two
  * bitstream readers (duplicate-Golay and interleaved-BCH). Extracted from
  * golay.ts so the decoder state machine stays under the file-size limit. The
+ * generator polynomials and syndrome logic are a faithful port of
  * osmocom-analog src/golay/golay.c.
  */
 

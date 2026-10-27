@@ -1,6 +1,7 @@
 /**
  * FLEX message deduplication + word-level combining for complete (K) messages.
  *
+ * A faithful port of multimon-ng demod_flex_next.c dedup_check_words. Stores
  * the packed raw words (header + body) of each complete message with their
  * BCH lost-status, keyed by (capcode, type, msgNum, wordCount). On a
  * retransmission:

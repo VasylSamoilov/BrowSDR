@@ -1,5 +1,6 @@
 /*
  * P25 Phase 1 frame processor for DSD.
+ * Ported from SDR++ Brown dsd_p25.cpp.
  *
  * P25 uses IMBE 7200x4400 codec. Most complex DSD mode.
  * Frame types: HDU, LDU1, LDU2, TDULC, TDU, TSDU, PDU.

@@ -7,6 +7,7 @@
  * switches FLEX alpha extraction to 16-bit Shift-JIS (FLEX carries no on-wire
  * signal for 16-bit payloads, so it is user-selected).
  *
+ * The Motorola Linguist sets are ported from osmocom-analog
  * src/libpagercharset/charset_flex_motorola_linguist_*.c.
  */
 

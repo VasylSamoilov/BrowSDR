@@ -1,5 +1,6 @@
 /*
  * Hamming(10,6,3) error correction for DSD (P25).
+ * Ported from SDR++ Brown Hamming.hpp.
  * Uses table-based implementation for fast lookups.
  */
 

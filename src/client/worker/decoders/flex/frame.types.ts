@@ -140,6 +140,7 @@ export interface FlexTimeVote {
 	timeHour: number;
 	timeMin: number;
 	timeSec: number;
+	// Time-mode detection (ARIB 3.7.2; port of multimon-ng tmode). STANDARD
 	// (tmode 0, default): TIME is the cycle's Frame-0 time, constant across the
 	// cycle, so the current frame's offset (frame*1.875 s) is added to get the
 	// per-frame instant. DIRECT (tmode 1): TIME already reflects the current

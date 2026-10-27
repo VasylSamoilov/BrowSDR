@@ -1,5 +1,6 @@
 /*
  * Reed-Solomon GF(2^6) error correction for DSD (P25).
+ * Ported from SDR++ Brown ReedSolomon.hpp.
  * Credit: Simon Rockliff, University of Adelaide.
  */
 

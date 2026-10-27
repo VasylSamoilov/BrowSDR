@@ -4,6 +4,7 @@
  * When a frame is transmitted multiple times (numTx = 2/3/4), it carries that
  * many copies of a shorter subframe. This best-of combine merges the copies
  * word-by-word into one subframe, preferring the highest-confidence word.
+ * A faithful port of osmocom flex_rx_subframe_combine.
  */
 
 const FLEX_WORDS_PER_FRAME = 88;

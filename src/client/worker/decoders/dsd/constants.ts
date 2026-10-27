@@ -1,4 +1,5 @@
 /*
+ * DSD symbol constants and interleave tables, ported from SDR++ Brown.
  * Original DSD source: https://github.com/szechyjs/dsd
  * Copyright (C) 2010 DSD Author (ISC License)
  */

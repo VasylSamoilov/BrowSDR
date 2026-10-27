@@ -1,4 +1,5 @@
 /**
+ * FLEX Frame Information Word (FIW) decode. A faithful port of the osmocom
  * src/flex/dsp.c flex_rx_decode_fiw routine.
  *
  * The FIW is a single 32-bit BCH(31,21)+parity codeword transmitted at 1600
