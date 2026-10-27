@@ -142,6 +142,20 @@ export const rdsMethods = {
 			const label = p.type === 'tone' ? 'TONE' : p.type.toUpperCase();
 			const val = p.type === 'tone' ? p.addrFmt : `${p.addrFmt}  ${p.data}`;
 			this.rds.log.push({ time, field: `PAG-${label}`, value: val, freq, vfoIndex, group: msg.srcGroup });
+			// Also push into the shared pager message center
+			const stn = this.rds.stations[msg.pi ?? 0];
+			const stationTag = stn?.pi ? `RDS ${stn.pi}${stn.ps.trim() ? ' ' + stn.ps.trim() : ''}` : `RDS ${freq}`;
+			this.pager.log.push({
+				protocol: 'rds',
+				time,
+				freq,
+				vfoIndex,
+				capcode: p.addrFmt,
+				type: p.type === 'numeric-10' ? 'numeric' : p.type === 'numeric-18' ? 'numeric' : p.type,
+				text: p.type === 'tone' ? '' : (p.data ?? ''),
+				detectDebug: stationTag,
+			});
+			this.pager.panelOpen = true;
 		}
 
 		// Auto-scroll log

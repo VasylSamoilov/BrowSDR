@@ -6,10 +6,11 @@ import type { PagerProtocol } from '@/worker/decoders/charsets';
 /** Static descriptor for each pager protocol the UI can present. POCSAG, GSC
  * and FLEX are peers; `hasCharsets` is resolved from the registry so a
  * default-only protocol (GSC) never shows a charset selector. */
-export const PAGER_PROTOCOLS: Array<{ id: PagerProtocol; label: string }> = [
+export const PAGER_PROTOCOLS: Array<{ id: PagerProtocol | 'rds'; label: string }> = [
 	{ id: 'pocsag', label: 'POCSAG' },
 	{ id: 'gsc', label: 'GSC' },
 	{ id: 'flex', label: 'FLEX' },
+	{ id: 'rds', label: 'RDS' },
 ];
 
 /**
@@ -80,12 +81,12 @@ export const pagerMethods = {
 		this.pager.panelOpen = !this.pager.panelOpen;
 	},
 	/** List of pager protocols for the per-VFO multi-select. */
-	pagerProtocols(this: AppInstance): Array<{ id: PagerProtocol; label: string; hasCharsets: boolean }> {
-		return PAGER_PROTOCOLS.map((p) => ({ ...p, hasCharsets: hasCharsets(p.id) }));
+	pagerProtocols(this: AppInstance): Array<{ id: PagerProtocol | 'rds'; label: string; hasCharsets: boolean }> {
+		return PAGER_PROTOCOLS.map((p) => ({ ...p, hasCharsets: p.id !== 'rds' && hasCharsets(p.id as PagerProtocol) }));
 	},
 	/** Set the panel's protocol row filter. */
 	setPagerFilter(this: AppInstance, value: string) {
-		this.pager.filter = (value as PagerProtocol | 'all') ?? 'all';
+		this.pager.filter = (value as PagerProtocol | 'rds' | 'all') ?? 'all';
 	},
 	/** Panel rows after applying the protocol filter. */
 	pagerRows(this: AppInstance): PagerLogEntry[] {

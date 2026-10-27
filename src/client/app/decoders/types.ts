@@ -4,7 +4,7 @@ export interface PagerState {
 	panelOpen: boolean;
 	log: PagerLogEntry[];
 	/** Row filter in the panel: a protocol id or 'all'. */
-	filter: PagerProtocol | 'all';
+	filter: PagerProtocol | 'rds' | 'all';
 }
 
 export type RdsStations = Record<
@@ -22,8 +22,8 @@ export type RdsStations = Record<
 >;
 
 export interface PagerLogEntry {
-	/** Which pager protocol produced this message. */
-	protocol: PagerProtocol;
+	/** Which pager protocol produced this message. 'rds' for RDS Group 7A pages. */
+	protocol: PagerProtocol | 'rds';
 	time: string;
 	freq: string;
 	vfoIndex: number;
