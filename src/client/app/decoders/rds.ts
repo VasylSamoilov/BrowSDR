@@ -197,27 +197,32 @@ export const rdsMethods = {
 	/** Apply EON, TMC, and paging fields. */
 	_applyRdsEonPagingFields(this: AppInstance, stn: ReturnType<AppInstance['_rdsStation']>, msg: RDSMessage, time: string, freq: string, vfoIndex: number) {
 		if (msg.eon !== undefined) {
-			const eonExtra: string[] = [];
-			if (msg.eon.mappedFreqs?.length) eonExtra.push(`MF:${msg.eon.mappedFreqs.length}`);
-			if (msg.eon.ptyOn !== undefined) eonExtra.push(`PTY:${msg.eon.ptyOn}`);
-			if (msg.eon.pinDay) eonExtra.push(`PIN:day${msg.eon.pinDay} ${String(msg.eon.pinHour).padStart(2, '0')}:${String(msg.eon.pinMinute).padStart(2, '0')}`);
-			this.rds.log.push({ time, field: 'EON', value: `PI:${msg.eon.pi}${msg.eon.ps ? ' PS:' + msg.eon.ps.trim() : ''}${eonExtra.length ? ' ' + eonExtra.join(' ') : ''}`, freq, vfoIndex, group: msg.srcGroup });
-			stn.eonNetworks[msg.eon.pi] = { pi: msg.eon.pi, ps: msg.eon.ps, tp: msg.eon.tp, ta: msg.eon.ta, af: msg.eon.af, mappedFreqs: msg.eon.mappedFreqs, ptyOn: msg.eon.ptyOn, pinDay: msg.eon.pinDay, pinHour: msg.eon.pinHour, pinMinute: msg.eon.pinMinute, lsn: msg.eon.lsn, lsIls: msg.eon.lsIls, lsEg: msg.eon.lsEg, lsLa: msg.eon.lsLa };
+			const eon = msg.eon;
+			const extra: string[] = [];
+			if (eon.mappedFreqs?.length) extra.push(`MF:${eon.mappedFreqs.length}`);
+			if (eon.ptyOn !== undefined) extra.push(`PTY:${eon.ptyOn}`);
+			if (eon.pinDay) extra.push(`PIN:day${eon.pinDay} ${String(eon.pinHour).padStart(2, '0')}:${String(eon.pinMinute).padStart(2, '0')}`);
+			const label = `PI:${eon.pi}${eon.ps ? ' PS:' + eon.ps.trim() : ''}${extra.length ? ' ' + extra.join(' ') : ''}`;
+			this.rds.log.push({ time, field: 'EON', value: label, freq, vfoIndex, group: msg.srcGroup });
+			this._applyRdsEonNetwork(stn, eon);
 		}
-		if (msg.tmcMessage !== undefined) {
-			const tm = msg.tmcMessage;
-			const text = `EVT:${tm.event} LOC:${tm.location} ${tm.direction === 'negative' ? '◄' : '►'} EXT:${tm.extent}${tm.diversion ? ' DIV' : ''}`;
-			this.rds.log.push({ time, field: 'TMC', value: text, freq, vfoIndex, group: msg.srcGroup });
-			this.pager.log.push({ protocol: 'tmc', time, freq, vfoIndex, capcode: `LOC:${tm.location}`, type: tm.multi ? 'multi' : 'single', text, tmcEvent: tm.event, tmcLocation: tm.location, tmcDirection: tm.direction, tmcExtent: tm.extent, tmcDuration: tm.duration, tmcDiversion: tm.diversion });
-			this.pager.panelOpen = true;
-		}
+		if (msg.tmcMessage !== undefined) this._applyRdsTmcMessage(time, freq, vfoIndex, msg.tmcMessage, msg.srcGroup);
 		if (msg.paging !== undefined) {
 			const p = msg.paging;
+			const tag = stn.pi ? `RDS ${stn.pi}${stn.ps.trim() ? ' ' + stn.ps.trim() : ''}` : `RDS ${freq}`;
 			this.rds.log.push({ time, field: `PAG-${p.type === 'tone' ? 'TONE' : p.type.toUpperCase()}`, value: p.type === 'tone' ? p.addrFmt : `${p.addrFmt}  ${p.data}`, freq, vfoIndex, group: msg.srcGroup });
-			const stationTag = stn.pi ? `RDS ${stn.pi}${stn.ps.trim() ? ' ' + stn.ps.trim() : ''}` : `RDS ${freq}`;
-			this.pager.log.push({ protocol: 'rds', time, freq, vfoIndex, capcode: p.addrFmt, type: p.type === 'tone' ? 'tone' : 'numeric', text: p.type === 'tone' ? '' : (p.data ?? ''), detectDebug: stationTag });
+			this.pager.log.push({ protocol: 'rds', time, freq, vfoIndex, capcode: p.addrFmt, type: p.type === 'alpha' ? 'alpha' : p.type === 'tone' ? 'tone' : 'numeric', text: p.type === 'tone' ? '' : (p.data ?? ''), detectDebug: tag });
 			this.pager.panelOpen = true;
 		}
+	},
+	_applyRdsEonNetwork(this: AppInstance, stn: ReturnType<AppInstance['_rdsStation']>, eon: NonNullable<RDSMessage['eon']>) {
+		stn.eonNetworks[eon.pi] = { pi: eon.pi, ps: eon.ps, tp: eon.tp, ta: eon.ta, af: eon.af, mappedFreqs: eon.mappedFreqs, ptyOn: eon.ptyOn, pinDay: eon.pinDay, pinHour: eon.pinHour, pinMinute: eon.pinMinute, lsn: eon.lsn, lsIls: eon.lsIls, lsEg: eon.lsEg, lsLa: eon.lsLa };
+	},
+	_applyRdsTmcMessage(this: AppInstance, time: string, freq: string, vfoIndex: number, tm: NonNullable<RDSMessage['tmcMessage']>, srcGroup: string | undefined) {
+		const text = `EVT:${tm.event} LOC:${tm.location} ${tm.direction === 'negative' ? '◄' : '►'} EXT:${tm.extent}${tm.diversion ? ' DIV' : ''}`;
+		this.rds.log.push({ time, field: 'TMC', value: text, freq, vfoIndex, group: srcGroup });
+		this.pager.log.push({ protocol: 'tmc', time, freq, vfoIndex, capcode: `LOC:${tm.location}`, type: tm.multi ? 'multi' : 'single', text, tmcEvent: tm.event, tmcLocation: tm.location, tmcDirection: tm.direction, tmcExtent: tm.extent, tmcDuration: tm.duration, tmcDiversion: tm.diversion });
+		this.pager.panelOpen = true;
 	},
 	/** Region change: update decoder AND auto-set de-emphasis (NA→75µs, EU→50µs). */
 	setRdsRegion(this: AppInstance, vfoIndex: number, region: string) {
