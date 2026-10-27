@@ -135,7 +135,7 @@ export const rdsMethods = {
 			}
 		}
 		if (msg.eon !== undefined) {
-			this.rds.log.push({ time, field: 'EON', value: `PI:${msg.eon.pi}${msg.eon.ps ? ' PS:' + msg.eon.ps.trim() : ''}`, freq, vfoIndex });
+			this.rds.log.push({ time, field: 'EON', value: `PI:${msg.eon.pi}${msg.eon.ps ? ' PS:' + msg.eon.ps.trim() : ''}`, freq, vfoIndex, group: msg.srcGroup });
 		}
 		if (msg.paging !== undefined) {
 			const p = msg.paging;
