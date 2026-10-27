@@ -687,6 +687,7 @@ export class _POCSAGSingleBaud {
 	_decodeAlpha(bits: number[], status: number[]): { text: string; charStatus: number[] } {
 		const cp = pocsagCodepage(this.charset);
 		const chars: string[] = [];
+		const rawCodes: number[] = []; // raw 7-bit code parallel to chars[], for padding detection
 		const charStatus: number[] = [];
 		let c = 0;
 		let cb = 0;
@@ -696,7 +697,8 @@ export class _POCSAGSingleBaud {
 			if (status[i] > worst) worst = status[i];
 			if (++cb === 7) {
 				let ch: string;
-				const glyph = cp[c & 0x7f];
+				const raw = c & 0x7f;
+				const glyph = cp[raw];
 				if (worst === POCSAG_CHAR_UNCORRECTABLE)
 					ch = '\ufffd'; // lost data
 				else if (c === 0)
@@ -705,22 +707,26 @@ export class _POCSAGSingleBaud {
 					ch = glyph; // mapped glyph (incl. \n, \r)
 				else ch = String.fromCharCode(c); // other control/unmapped — keep raw for <0xNN> display
 				chars.push(ch);
+				rawCodes.push(raw);
 				charStatus.push(worst);
 				c = 0;
 				cb = 0;
 				worst = POCSAG_CHAR_OK;
 			}
 		}
-		// Strip trailing fill. Per POCSAG spec the final codeword is padded with
-		// NULL (0x00) or space; a contiguous run of the SAME fill char at the end
-		// is message padding, not content — drop it (prevents a spurious trailing
-		// '?' / space on nearly every message).
+		// Strip trailing fill. Per POCSAG spec §4.2, padding is the last 1 or 2
+		// chars of the last codeword, filled with the same character.
+		// Step 1: NUL (0x00) — always padding, check first unconditionally.
+		// Step 2: if not NUL-padded, check if the last char is non-printable
+		//         (cp[code]===null); if so, strip 1 or 2 of that same code.
 		let end = chars.length;
-		if (end > 0) {
-			const last = chars[end - 1];
-			if (last === '\u0000' || last === ' ') {
-				while (end > 0 && chars[end - 1] === last) end--;
-			}
+		if (end > 0 && rawCodes[end - 1] === 0x00) {
+			end--;
+			if (end > 0 && rawCodes[end - 1] === 0x00) end--;
+		} else if (end > 0 && chars[end - 1] !== '\ufffd' && cp[rawCodes[end - 1]] === null) {
+			const padCode = rawCodes[end - 1];
+			end--;
+			if (end > 0 && rawCodes[end - 1] === padCode) end--;
 		}
 		// Also drop any embedded NULLs (incomplete fill at codeword boundaries).
 		let text = '';
