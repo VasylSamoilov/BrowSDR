@@ -17,11 +17,11 @@
 				</UiEmptyState>
 				<div v-for="stn in rdsStationList()" :key="stn.vfoIndex" class="rds-station-card" :style="{ borderLeftColor: vfoColor(stn.vfoIndex) }">
 					<div class="rds-station">
-						<span class="rds-ps" v-if="stn.ps"><span
-							v-for="(ch, ci) in stn.ps.split('')" :key="ci"
-							:style="{ color: (stn.psCharStatus[ci] === 1) ? '#ffcc44' : (stn.psCharStatus[ci] === 2) ? '#ff5252' : undefined }"
-						>{{ ch }}</span></span>
-						<span class="rds-ptyn" v-if="stn.ptyn" :title="'Programme type name: ' + stn.ptyn">{{ stn.ptyn }}</span>
+						<span class="rds-ps" v-if="stn.ps || stn.pi" style="display:inline-block;min-width:8ch;"><span
+							v-for="ci in 8" :key="ci - 1"
+							:style="{ color: (stn.psCharStatus[ci - 1] === 1) ? '#ffcc44' : (stn.psCharStatus[ci - 1] === 2) ? '#ff5252' : undefined }"
+						>{{ stn.ps && stn.ps[ci - 1] !== undefined ? stn.ps[ci - 1] : '\u00A0' }}</span></span>
+						<span class="rds-ptyn" v-if="stn.ptyn" :title="'Programme type name: ' + stn.ptyn" style="display:inline-block;min-width:8ch;font-family:'Roboto Mono',monospace;">{{ stn.ptyn.padEnd(8, '\u00A0') }}</span>
 						<span class="rds-freq">{{ stn.freq }}</span>
 					</div>
 					<div class="rds-station-meta">
