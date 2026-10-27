@@ -150,8 +150,9 @@ export interface RDSMessage {
 		pinDay?: number; pinHour?: number; pinMinute?: number;
 	};
 	// eRT (Enhanced RadioText, ODA AID 0x6552)
-	eRT?: string;               // decoded eRT text (up to 128 chars)
-	eRTCharStatus?: number[];   // per-char quality (0=ok, 1=corrected, 2=lost)
+	eRT?: string;               // decoded eRT text (up to 128 chars) -- complete message
+	eRTPartial?: string;        // in-progress eRT text while assembling
+	eRTCharStatus?: number[];   // per-codepoint quality (0=ok, 1=corrected, 2=lost)
 	// Group 3A RT+ ODA (AID 0x4BD7) and Group 11A RT+ data
 	rtPlusRunning?: boolean;    // item_running flag (true=item active)
 	rtPlusToggle?: number;      // item_toggle bit (0 or 1, change = new item)

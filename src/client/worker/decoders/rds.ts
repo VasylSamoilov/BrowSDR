@@ -1429,20 +1429,35 @@ export class RDSDecoder {
 		if (base + 3 >= 128) return;
 
 		const writeByte = (pos: number, val: number, q: number) => {
-			this.eRTBytes[pos] = val;
-			this.eRTFilled[pos] = true;
-			// quality can only improve (lower number = better): 0=clean, 1=corrected, 2=lost
-			if (!this.eRTFilled[pos] || q < this.eRTQuality[pos]) this.eRTQuality[pos] = q;
+			if (!this.eRTFilled[pos]) {
+				// First receive -- store value and quality
+				this.eRTBytes[pos] = val;
+				this.eRTFilled[pos] = true;
+				this.eRTQuality[pos] = q;
+			} else if (q < this.eRTQuality[pos]) {
+				// Better quality on re-receive: update value and quality
+				this.eRTBytes[pos] = val;
+				this.eRTQuality[pos] = q;
+			}
+			// Worse or equal quality: keep existing value
 		};
 		if (bv[2]) {
 			const c = this.blocks[2]; const q = this.blockQuality(2);
 			writeByte(base,     (c >> 8) & 0xff, q);
 			writeByte(base + 1, c & 0xff,         q);
+		} else {
+			// Block C lost: fill with space (0x20) at quality=2 so sequential fill can advance
+			writeByte(base,     0x20, 2);
+			writeByte(base + 1, 0x20, 2);
 		}
 		if (bv[3]) {
 			const d = this.blocks[3]; const q = this.blockQuality(3);
 			writeByte(base + 2, (d >> 8) & 0xff, q);
 			writeByte(base + 3, d & 0xff,         q);
+		} else {
+			// Block D lost: fill with space at quality=2
+			writeByte(base + 2, 0x20, 2);
+			writeByte(base + 3, 0x20, 2);
 		}
 
 		// Sequential length: count filled bytes from pos 0 (redsea sequential_length_)
@@ -1455,8 +1470,8 @@ export class RDSDecoder {
 
 		// isComplete: CR found, or all 128 bytes received
 		const hasCr = this.eRTBytes[seqLen - 1] === 0x0d;
-		if (!hasCr && seqLen < 128) return; // buffer not complete yet
-
+		const isComplete = hasCr || seqLen >= 128;
+		// For partial: build from what we have so far; for complete: trim CR
 		const rawLen = hasCr ? seqLen - 1 : seqLen;
 
 		// Walk bytes, validate UTF-8 sequences (redsea sanitizeUtf8 logic),
@@ -1495,9 +1510,16 @@ export class RDSDecoder {
 		while (chars.length > 0 && chars[chars.length - 1] === ' ') { chars.pop(); cpQuality.pop(); }
 
 		const text = chars.join('');
-		if (text.length >= 1 && text !== this.lastERT) {
-			this.lastERT = text;
-			this.callback({ eRT: text, eRTCharStatus: cpQuality });
+		if (text.length < 1) return;
+		if (isComplete) {
+			// Complete message: emit as eRT (last-complete semantics like redsea)
+			if (text !== this.lastERT) {
+				this.lastERT = text;
+				this.callback({ eRT: text, eRTCharStatus: cpQuality });
+			}
+		} else {
+			// Partial: emit in-progress text so the UI shows something while receiving
+			this.callback({ eRTPartial: text, eRTCharStatus: cpQuality });
 		}
 	}
 
