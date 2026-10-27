@@ -411,9 +411,10 @@ export class FlexFrontend {
 		}
 
 		if (this.pllLocked) {
-			if (FLEX_DEMOD_DIAG) console.log(
-				`[FLEX SYM] sym=${modal} iad=${iadSymbol} dc=${this.pllZero.toFixed(4)} env=${this.pllEnvelope.toFixed(4)} phase=${((100*this.pllPhase)/(100*this.sampleFreq)).toFixed(1)}% state=${this.rxState} votes=[${dbgVotes!.join(',')}]`
-			);
+			if (FLEX_DEMOD_DIAG)
+				console.log(
+					`[FLEX SYM] sym=${modal} iad=${iadSymbol} dc=${this.pllZero.toFixed(4)} env=${this.pllEnvelope.toFixed(4)} phase=${((100 * this.pllPhase) / (100 * this.sampleFreq)).toFixed(1)}% state=${this.rxState} votes=[${dbgVotes!.join(',')}]`,
+				);
 			this.feedSymbol(modal);
 		} else {
 			// Lock hunt: shift symbols in, match the BS1 alternating 0x6666...
@@ -438,9 +439,10 @@ export class FlexFrontend {
 		if (this.pllLocked === locked) return;
 		this.pllLocked = locked;
 		if (!locked) this.ersReported = false; // re-arm: next ERS burst is reportable
-		if (FLEX_DEMOD_DIAG) console.log(
-			`[FLEX ${locked ? 'LOCK' : 'UNLOCK'}] dc=${this.pllZero.toFixed(4)} env=${this.pllEnvelope.toFixed(4)} baud=${this.baud} state=${this.rxState}`
-		);
+		if (FLEX_DEMOD_DIAG)
+			console.log(
+				`[FLEX ${locked ? 'LOCK' : 'UNLOCK'}] dc=${this.pllZero.toFixed(4)} env=${this.pllEnvelope.toFixed(4)} baud=${this.baud} state=${this.rxState}`,
+			);
 		this.ev.onLock?.(locked);
 	}
 
@@ -476,8 +478,8 @@ export class FlexFrontend {
 	}
 
 	/**
-	 * Dispatch a recovered symbol to the RX state machine. 
-	 * 
+	 * Dispatch a recovered symbol to the RX state machine.
+	 *
 	 */
 	private feedSymbol(sym: number): void {
 		// Rectify for polarity (inverted mapping flips the level order).
@@ -527,7 +529,10 @@ export class FlexFrontend {
 			// later from the low 32 bits. Do not defer the A capture -- the
 			// narrower register cannot hold A once the tail has shifted in.
 			if (code !== 0 && this.decodeMode(code, polarity)) {
-				if (FLEX_DEMOD_DIAG) console.log(`[FLEX SYNC_DETECT] code=0x${code.toString(16)} polarity=${polarity} dc=${this.pllZero.toFixed(4)} env=${this.pllEnvelope.toFixed(4)}`);
+				if (FLEX_DEMOD_DIAG)
+					console.log(
+						`[FLEX SYNC_DETECT] code=0x${code.toString(16)} polarity=${polarity} dc=${this.pllZero.toFixed(4)} env=${this.pllEnvelope.toFixed(4)}`,
+					);
 				this.polarity = polarity;
 				this.s1TailCount = 1;
 			}
@@ -536,14 +541,16 @@ export class FlexFrontend {
 			const invA = this.polarity ? this.syncLo : ~this.syncLo >>> 0;
 			const corrected = combinedACorrection(this.syncACode, invA);
 			if (corrected === 0) {
-				if (FLEX_DEMOD_DIAG) console.log(`[FLEX SYNC_FAIL] combinedA=0 syncACode=0x${this.syncACode.toString(16)} invA=0x${invA.toString(16)}`);
+				if (FLEX_DEMOD_DIAG)
+					console.log(`[FLEX SYNC_FAIL] combinedA=0 syncACode=0x${this.syncACode.toString(16)} invA=0x${invA.toString(16)}`);
 				this.s1TailCount = 0; // false positive -> back to hunting
 				return;
 			}
 			const finalSync = (~corrected >>> 16) & 0xffff;
 			const mode = MODES.find((m) => m.syncCode === finalSync);
 			if (!mode) {
-				if (FLEX_DEMOD_DIAG) console.log(`[FLEX SYNC_NOMODE] finalSync=0x${finalSync.toString(16)} syncACode=0x${this.syncACode.toString(16)}`);
+				if (FLEX_DEMOD_DIAG)
+					console.log(`[FLEX SYNC_NOMODE] finalSync=0x${finalSync.toString(16)} syncACode=0x${this.syncACode.toString(16)}`);
 				this.reportNonModeSync(finalSync, this.syncACode, invA);
 				this.s1TailCount = 0;
 				return;
@@ -572,9 +579,10 @@ export class FlexFrontend {
 
 		const fiw = decodeFiw(this.fiwRaw);
 		if (!fiw) {
-			if (FLEX_DEMOD_DIAG) console.log(
-				`[FLEX FIW_FAIL] raw=0x${this.fiwRaw.toString(16).padStart(8, '0')} dc=${this.pllZero.toFixed(4)} env=${this.pllEnvelope.toFixed(4)}`
-			);
+			if (FLEX_DEMOD_DIAG)
+				console.log(
+					`[FLEX FIW_FAIL] raw=0x${this.fiwRaw.toString(16).padStart(8, '0')} dc=${this.pllZero.toFixed(4)} env=${this.pllEnvelope.toFixed(4)}`,
+				);
 			this.rxState = RX_STATE_SYNC1;
 			this.s1TailCount = 0;
 			// FIW failed — genuine sync loss. Reset DC so the fast S1 time
@@ -582,9 +590,8 @@ export class FlexFrontend {
 			this.pllZero = 0;
 			return;
 		}
-		if (FLEX_DEMOD_DIAG) console.log(
-			`[FLEX FIW_OK] cycle=${fiw.cycle} frame=${fiw.frame} roaming=${fiw.roaming} dc=${this.pllZero.toFixed(4)}`
-		);
+		if (FLEX_DEMOD_DIAG)
+			console.log(`[FLEX FIW_OK] cycle=${fiw.cycle} frame=${fiw.frame} roaming=${fiw.roaming} dc=${this.pllZero.toFixed(4)}`);
 		this.fiw = fiw;
 		this.ev.onFiw?.(fiw);
 		// Switch to the data symbol rate; BS2 re-trains the PLL at the new rate.

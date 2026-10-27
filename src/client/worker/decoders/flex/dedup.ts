@@ -148,7 +148,6 @@ function insertEntry(
 	store.nextSlot = (slot + 1) % DEDUP_SLOTS;
 }
 
-
 /**
  * Run the dedup/combine for a complete message. Packs [hdr, body0..body(n-1)]
  * from the live phase arrays (reference order), checks the cache, and on an
@@ -194,7 +193,6 @@ export function dedupMessage(
 	}
 	return { words: mergedWords, status: mergedStatus, tag: 'dup+' };
 }
-
 
 // Vector types needed for the dedup gate (frame.h FLEX_VECTOR_TYPE_*).
 const VEC_SHORT_INSTR = 0x1;

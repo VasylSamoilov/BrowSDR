@@ -884,15 +884,29 @@ describe('FLEX frame decode', () => {
 
 	it('formats the calculated flextime only from confirmed components', () => {
 		const base = { localId: null, coverageZone: null, countryCode: null, tmf: null, dst: null };
-		const clk = (over) => ({ year: null, month: null, day: null, hour: 15, min: 42, coarseSec: 0, extSec: null, standardMode: false, ...over });
+		const clk = (over) => ({
+			year: null,
+			month: null,
+			day: null,
+			hour: 15,
+			min: 42,
+			coarseSec: 0,
+			extSec: null,
+			standardMode: false,
+			...over,
+		});
 		// Nothing confirmed -> no timestamp printed at all.
 		expect(formatFlexTime({ ...base, date: null, time: null, tzOffsetMin: null, clock: null }, 0)).toBeNull();
 		// Date only (no clock).
 		expect(formatFlexTime({ ...base, date: '2026-10-26', time: null, tzOffsetMin: null, clock: null }, 0)).toBe('2026-10-26');
 		// Date + time + whole-hour TZ (DIRECT mode: no frame offset).
-		expect(formatFlexTime({ ...base, date: '2026-10-26', time: '15:42:00', tzOffsetMin: 120, dst: false, clock: clk({}) }, 50)).toBe('2026-10-26 15:42:00 +2h');
+		expect(formatFlexTime({ ...base, date: '2026-10-26', time: '15:42:00', tzOffsetMin: 120, dst: false, clock: clk({}) }, 50)).toBe(
+			'2026-10-26 15:42:00 +2h',
+		);
 		// Fractional-hour TZ with DST active, negative offset (DIRECT).
-		expect(formatFlexTime({ ...base, date: null, time: '09:30:00', tzOffsetMin: -330, dst: true, clock: clk({ hour: 9, min: 30 }) }, 0)).toBe('09:30:00 -5h30m DST');
+		expect(
+			formatFlexTime({ ...base, date: null, time: '09:30:00', tzOffsetMin: -330, dst: true, clock: clk({ hour: 9, min: 30 }) }, 0),
+		).toBe('09:30:00 -5h30m DST');
 	});
 
 	it('adds the per-frame offset in STANDARD mode but not DIRECT (time-mode vote)', () => {

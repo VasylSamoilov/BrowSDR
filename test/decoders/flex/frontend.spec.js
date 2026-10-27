@@ -197,8 +197,18 @@ describe('FLEX front end -- lock + mode detection', () => {
 		// receiver's outer code (codehigh) = ~(A >> 16). This reproduces the
 		// cross-source derivation and proves ALL reserved codes, not just A5.
 		const codes = {
-			A5: 0xdd4b, A6: 0x163b, A7: 0xb383, A8: 0x6341, A9: 0x1be2, A10: 0x2c86,
-			A11: 0xa5e8, A12: 0x928c, A13: 0x6e98, A14: 0xbe5a, A15: 0xf19d, Ar: 0xcb20,
+			A5: 0xdd4b,
+			A6: 0x163b,
+			A7: 0xb383,
+			A8: 0x6341,
+			A9: 0x1be2,
+			A10: 0x2c86,
+			A11: 0xa5e8,
+			A12: 0x928c,
+			A13: 0x6e98,
+			A14: 0xbe5a,
+			A15: 0xf19d,
+			Ar: 0xcb20,
 		};
 		const seen = new Set();
 		for (const [name, hi] of Object.entries(codes)) {

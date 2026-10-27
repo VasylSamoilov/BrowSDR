@@ -13,9 +13,9 @@ import type { GroupEvent, GroupSlot, CapClass } from './frame.types';
 
 export const TEMP_ADDR_SLOTS = 16;
 export const TEMP_ADDR_SLOT_MASK = 0x0f;
-const FLEX_FRAME_WINDOW     = 128; // frames in 1 Cycle (ARIB STD-43A sec. 3.1.1 / 5.6)
-const FLEX_PHASES_PER_FRAME = 4;   // A/B/C/D @ 6400 bps
-const FLEX_WORDS_PER_ENROLL = 2;   // 1 Address Word + 1 Vector Word (sec. 3.4.1)
+const FLEX_FRAME_WINDOW = 128; // frames in 1 Cycle (ARIB STD-43A sec. 3.1.1 / 5.6)
+const FLEX_PHASES_PER_FRAME = 4; // A/B/C/D @ 6400 bps
+const FLEX_WORDS_PER_ENROLL = 2; // 1 Address Word + 1 Vector Word (sec. 3.4.1)
 const FLEX_ENROLL_PER_PHASE = Math.floor((88 - 1) / FLEX_WORDS_PER_ENROLL); // (PHASE_WORDS-1)/2 = 43
 // Physical worst-case group membership permitted by the FLEX protocol:
 // 128 frames x 4 phases x 43 enrollments/phase = 22016 (sec. 5.7)

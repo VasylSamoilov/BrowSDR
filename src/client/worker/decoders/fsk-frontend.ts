@@ -41,7 +41,7 @@ export class FskBitSlicer {
 	 * bias the slicer. */
 	private readonly dcAlpha: number;
 	private static readonly DC_CLAMP = 0.001; // max DC shift per sample as fraction of env
-	private static readonly DC_MAX   = 0.10;  // hard cap on DC estimate as fraction of env
+	private static readonly DC_MAX = 0.1; // hard cap on DC estimate as fraction of env
 
 	// ── PLL / timing ──
 	/** PLL lock state (drives the timing gain). Read and set by the decoder's
@@ -89,7 +89,7 @@ export class FskBitSlicer {
 		// 10 ms DC time constant: converges within the burst preamble regardless
 		// of baud rate. A bit-scaled constant was too slow at low baud and left
 		// the slicer DC-biased through short pages.
-		this.dcAlpha = 1 / (audioRate * 0.010 + 1);
+		this.dcAlpha = 1 / (audioRate * 0.01 + 1);
 		// Envelope tracks slower than DC — it averages amplitude over ~64 bits.
 		this.envAlpha = 1 / (64 * this.spb);
 		// Unlocked decay ~1000 bits: reference relaxes gently between bursts.
@@ -141,8 +141,7 @@ export class FskBitSlicer {
 		if (!this.pllLocked) {
 			const delta = this.dcAlpha * (x - this.dcLevel);
 			const maxDelta = FskBitSlicer.DC_CLAMP * this.env;
-			this.dcLevel +=
-				delta > maxDelta ? maxDelta : delta < -maxDelta ? -maxDelta : delta;
+			this.dcLevel += delta > maxDelta ? maxDelta : delta < -maxDelta ? -maxDelta : delta;
 		}
 		// Hard clamp: DC estimate never exceeds ±DC_MAX × env even during
 		// acquisition, so a very noisy preamble cannot park a huge offset.

@@ -28,13 +28,12 @@ export const flexMethods = {
 		if (!this.flexStatus) this.flexStatus = [];
 		// Carry last-known BER forward so the UI can dim it during hunt.
 		const prev = this.flexStatus[vfoIndex];
-		const lastBer = status.ber != null ? status.ber : (prev)?.lastBer ?? null;
+		const lastBer = status.ber != null ? status.ber : (prev?.lastBer ?? null);
 
 		// Emit ERS and reserved sync codes as pager log entries (once per event).
-		const prevEvent = (prev)?.lastSyncEvent;
+		const prevEvent = prev?.lastSyncEvent;
 		const curEvent = status.lastSyncEvent;
-		if (curEvent && curEvent !== prevEvent &&
-			(!prevEvent || curEvent.code !== prevEvent.code || curEvent.label !== prevEvent.label)) {
+		if (curEvent && curEvent !== prevEvent && (!prevEvent || curEvent.code !== prevEvent.code || curEvent.label !== prevEvent.label)) {
 			const time = new Date().toLocaleTimeString();
 			const freq = freqMhz ? this.formatFreq(freqMhz) + ' MHz' : '';
 			this.pager.log.push({

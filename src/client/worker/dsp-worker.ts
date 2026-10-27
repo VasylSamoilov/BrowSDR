@@ -257,7 +257,8 @@ function configureDDC(params: VfoParams, systemCenterFreq: number): void {
 				},
 				params.rdsRegion || 'eu',
 			);
-		}		rdsDecoder.setRegion(params.rdsRegion || 'eu');
+		}
+		rdsDecoder.setRegion(params.rdsRegion || 'eu');
 		rdsDdc.set_shift(systemSampleRate, offsetFreq);
 	} else {
 		if (rdsDdc) {
