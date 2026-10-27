@@ -132,6 +132,11 @@ export class RDSDecoder {
 			const labels = region === 'na' ? PTY_LABELS_NA : PTY_LABELS_EU;
 			this.callback({ pty: this.pty, ptyLabel: labels[this.pty] || '' });
 		}
+		// LIC is EU-only; clear it when switching to NA to remove spurious language display
+		if (region === 'na' && this.lic >= 0) {
+			this.lic = -1;
+			this.callback({ lic: -1, languageName: '' });
+		}
 	}
 
 	process(samples: Float32Array): void { this.demod.process(samples); }
@@ -375,6 +380,14 @@ export class RDSDecoder {
 	}
 
 	private _decode1AVariant(variant: number, payload: number): void {
+		if (variant <= 3) { this._decode1AVariantLow(variant, payload); return; }
+		switch (variant) {
+			case 6: { const bd = payload; if (bd !== this.broadcasterData) { this.broadcasterData = bd; this.callback({ broadcasterData: bd }); } break; }
+			case 7: { const ews = payload; if (ews !== this.ewsChannel) { this.ewsChannel = ews; this.callback({ ewsChannel: ews }); } break; }
+		}
+	}
+
+	private _decode1AVariantLow(variant: number, payload: number): void {
 		switch (variant) {
 			case 0: {
 				const ecc = payload & 0xff; const opc = (payload >> 8) & 0xf;
@@ -399,19 +412,13 @@ export class RDSDecoder {
 				break;
 			}
 			case 3: {
-				const lic = payload & 0xff;
-				if (lic !== this.lic) { this.lic = lic; this.callback({ lic, languageName: LIC_NAMES[lic] || 'Unknown' }); }
-				break;
-			}
-			case 4: case 5: break; // Not assigned
-			case 6: {
-				const bd = payload;
-				if (bd !== this.broadcasterData) { this.broadcasterData = bd; this.callback({ broadcasterData: bd }); }
-				break;
-			}
-			case 7: {
-				const ews = payload;
-				if (ews !== this.ewsChannel) { this.ewsChannel = ews; this.callback({ ewsChannel: ews }); }
+				if (this.region === 'na') {
+					// RBDS (NRSC-4-B Table 4.2.1b): variant 3 = broadcaster short name; not decoded
+				} else {
+					// RDS (IEC 62106 Table 3): variant 3 = Language Identification Code
+					const lic = payload & 0xff;
+					if (lic !== this.lic) { this.lic = lic; this.callback({ lic, languageName: LIC_NAMES[lic] || 'Unknown' }); }
+				}
 				break;
 			}
 		}
