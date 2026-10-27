@@ -137,6 +137,12 @@ export const rdsMethods = {
 		if (msg.eon !== undefined) {
 			this.rds.log.push({ time, field: 'EON', value: `PI:${msg.eon.pi}${msg.eon.ps ? ' PS:' + msg.eon.ps.trim() : ''}`, freq, vfoIndex });
 		}
+		if (msg.paging !== undefined) {
+			const p = msg.paging;
+			const label = p.type === 'tone' ? 'TONE' : p.type.toUpperCase();
+			const val = p.type === 'tone' ? p.addrFmt : `${p.addrFmt}  ${p.data}`;
+			this.rds.log.push({ time, field: `PAG-${label}`, value: val, freq, vfoIndex, group: msg.srcGroup });
+		}
 
 		// Auto-scroll log
 		Promise.resolve(

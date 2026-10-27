@@ -148,6 +148,6 @@ export interface RDSMessage {
 	rtPlusItem2Name?: string;   // Tag 2 content type name
 	// Group 0A AF list
 	af?: number[];          // Alternative frequencies in kHz
-	// Paging (ODA AID 0x3DC5 / Group 1A pager variant / Group 7A)
-	paging?: { address: number; functionBits: number; data: string };
+	// Group 7A Radio Paging (EN 50067 Annex M) — gated on rpcGroupDesig > 0
+	paging?: { address: number; addrFmt: string; type: 'tone' | 'num10' | 'num18' | 'alpha'; data: string };
 }
