@@ -93,7 +93,7 @@
 					<span class="msgcenter-vfo-dot" v-if="entry.vfoIndex != null" :style="{ background: vfoColor(entry.vfoIndex) }" :title="'VFO ' + (entry.vfoIndex + 1)"></span>
 					<span class="msgcenter-time">{{ entry.time }}</span>
 					<span class="msgcenter-freq" :style="entry.vfoIndex != null ? { color: vfoColor(entry.vfoIndex) } : {}">{{ entry.freq }}</span>
-					<span class="msgcenter-group" v-if="entry.group" style="font-size:10px;opacity:0.5;margin-right:2px;">{{ entry.group }}<template v-if="entry.abFlag != null"> T:{{ entry.abFlag === 0 ? 'A' : 'B' }}</template></span>
+					<span class="msgcenter-group" v-if="entry.group" style="font-size:10px;opacity:0.5;margin-right:2px;">{{ entry.group }}<template v-if="entry.abFlag != null"> RT:{{ entry.abFlag === 0 ? 'A' : 'B' }}</template></span>
 					<span class="msgcenter-type">{{ entry.field }}</span>
 					<span class="msgcenter-text">{{ entry.value }}</span>
 				</div>
