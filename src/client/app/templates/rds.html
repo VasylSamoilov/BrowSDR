@@ -66,7 +66,10 @@
 						v-for="(ch, ci) in stn.rt.split('')" :key="ci"
 						:style="{ color: (stn.rtCharStatus[ci] === 1) ? '#ffcc44' : (stn.rtCharStatus[ci] === 2) ? '#ff5252' : undefined }"
 					>{{ ch }}</span></div>
-					<div class="rds-rt" v-if="stn.eRT" style="opacity:0.8;" title="Enhanced RadioText (eRT) - Unicode text">eRT: {{ stn.eRT }}</div>
+					<div class="rds-rt" v-if="stn.eRT" style="opacity:0.8;" title="Enhanced RadioText (eRT) - Unicode/UTF-8 text"><span style="opacity:0.5;font-size:10px;margin-right:3px;">eRT</span><span
+						v-for="(ch, ci) in [...stn.eRT]" :key="ci"
+						:style="{ color: (stn.eRTCharStatus && stn.eRTCharStatus[ci] === 1) ? '#ffcc44' : (stn.eRTCharStatus && stn.eRTCharStatus[ci] === 2) ? '#ff5252' : undefined }"
+					>{{ ch }}</span></div>
 					<div class="rds-rtplus" v-if="stn.rtPlusItem1 || stn.rtPlusItem2" style="font-size:11px;opacity:0.75;margin-top:2px;">
 						<span v-if="!stn.rtPlusRunning" style="opacity:0.5;" title="Item not running">[ended] </span>
 						<span v-if="stn.rtPlusItem1">

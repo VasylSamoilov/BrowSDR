@@ -1409,24 +1409,30 @@ export class RDSDecoder {
 	// Wire format: identical to Group 2A (4-bit segment address in block B bits[3:0],
 	// A/B toggle in block B bit 4, 4 bytes per group in blocks C+D).
 	// Carries up to 128 bytes of raw UTF-8, CR (0x0D) terminated.
+	//
+	// Approach cloned from redsea RDSString:
+	//  - sequential_length_: only bytes received in-order from pos 0 count.
+	//  - isComplete(): sequential fill has reached the CR terminator or pos 128.
+	//  - sanitizeUtf8(): incomplete/invalid multibyte sequences replaced with '?'.
+	//  - Per-codepoint quality: worst quality byte in the codepoint's byte span.
 	private decodeERT(blockB: number, bv: boolean[]): void {
 		const abFlag = (blockB >> 4) & 1;
 		if (abFlag !== this.eRTAbFlag) {
-			// A/B toggle: new eRT message, clear buffer
 			this.eRTAbFlag = abFlag;
 			this.eRTBytes.fill(0);
 			this.eRTFilled.fill(false);
 			this.eRTQuality.fill(0);
 			this.lastERT = '';
 		}
-		const seg = blockB & 0x0f;  // 4-bit segment (0-15), each segment = 4 bytes
+		const seg = blockB & 0x0f;
 		const base = seg * 4;
-		if (base + 3 >= 128) return; // guard
+		if (base + 3 >= 128) return;
 
 		const writeByte = (pos: number, val: number, q: number) => {
 			this.eRTBytes[pos] = val;
 			this.eRTFilled[pos] = true;
-			this.eRTQuality[pos] = q;
+			// quality can only improve (lower number = better): 0=clean, 1=corrected, 2=lost
+			if (!this.eRTFilled[pos] || q < this.eRTQuality[pos]) this.eRTQuality[pos] = q;
 		};
 		if (bv[2]) {
 			const c = this.blocks[2]; const q = this.blockQuality(2);
@@ -1439,22 +1445,59 @@ export class RDSDecoder {
 			writeByte(base + 3, d & 0xff,         q);
 		}
 
-		// Find end of filled contiguous region (CR-terminated or all filled)
-		let len = 0;
-		while (len < 128 && this.eRTFilled[len] && this.eRTBytes[len] !== 0x0d) len++;
-		if (len === 0) return;
-
-		// Decode bytes as UTF-8
-		let text: string;
-		try {
-			text = new TextDecoder('utf-8', { fatal: false }).decode(this.eRTBytes.slice(0, len));
-		} catch {
-			return; // incomplete UTF-8 sequence -- wait for more groups
+		// Sequential length: count filled bytes from pos 0 (redsea sequential_length_)
+		let seqLen = 0;
+		while (seqLen < 128 && this.eRTFilled[seqLen]) {
+			if (this.eRTBytes[seqLen] === 0x0d) { seqLen++; break; } // CR terminator
+			seqLen++;
 		}
-		text = text.trimEnd();
+		if (seqLen === 0) return;
+
+		// isComplete: CR found, or all 128 bytes received
+		const hasCr = this.eRTBytes[seqLen - 1] === 0x0d;
+		if (!hasCr && seqLen < 128) return; // buffer not complete yet
+
+		const rawLen = hasCr ? seqLen - 1 : seqLen;
+
+		// Walk bytes, validate UTF-8 sequences (redsea sanitizeUtf8 logic),
+		// assemble per-codepoint quality (worst byte quality in the codepoint).
+		const chars: string[] = [];
+		const cpQuality: number[] = [];
+		let i = 0;
+		while (i < rawLen) {
+			const b0 = this.eRTBytes[i];
+			let seqBytes: number;
+			if      ((b0 & 0x80) === 0x00) seqBytes = 1;
+			else if ((b0 & 0xe0) === 0xc0) seqBytes = 2;
+			else if ((b0 & 0xf0) === 0xe0) seqBytes = 3;
+			else if ((b0 & 0xf8) === 0xf0) seqBytes = 4;
+			else { chars.push('?'); cpQuality.push(this.eRTQuality[i]); i++; continue; }
+
+			if (i + seqBytes > rawLen) {
+				// Incomplete sequence at end of buffer
+				chars.push('?'); cpQuality.push(2); i++; continue;
+			}
+			let valid = true;
+			for (let j = 1; j < seqBytes; j++) {
+				if ((this.eRTBytes[i + j] & 0xc0) !== 0x80) { valid = false; break; }
+			}
+			if (!valid) {
+				chars.push('?'); cpQuality.push(this.eRTQuality[i]); i++; continue;
+			}
+			// Valid codepoint: quality = worst of its constituent bytes
+			let worstQ = this.eRTQuality[i];
+			for (let j = 1; j < seqBytes; j++) if (this.eRTQuality[i + j] > worstQ) worstQ = this.eRTQuality[i + j];
+			const cp = new TextDecoder('utf-8', { fatal: false }).decode(this.eRTBytes.slice(i, i + seqBytes));
+			chars.push(cp);
+			cpQuality.push(worstQ);
+			i += seqBytes;
+		}
+		while (chars.length > 0 && chars[chars.length - 1] === ' ') { chars.pop(); cpQuality.pop(); }
+
+		const text = chars.join('');
 		if (text.length >= 1 && text !== this.lastERT) {
 			this.lastERT = text;
-			this.callback({ eRT: text, eRTCharStatus: [...this.eRTQuality.slice(0, len)] });
+			this.callback({ eRT: text, eRTCharStatus: cpQuality });
 		}
 	}
 

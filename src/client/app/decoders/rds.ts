@@ -16,6 +16,7 @@ const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false,
 	ms: null as boolean | null, di: -1, diStereo: false, diArtHead: false, diCompressed: false, diDynPty: false,
 	// eRT (Enhanced RadioText)
 	eRT: '' as string,
+	eRTCharStatus: [] as number[],
 };
 
 export const rdsMethods = {
@@ -147,6 +148,7 @@ export const rdsMethods = {
 		if (msg.eRT !== undefined) {
 			const stn = this.rds.stations[msg.pi ?? 0] ?? (this.rds.stations[msg.pi ?? 0] = { ...EMPTY_STATION, freq, vfoIndex } as typeof EMPTY_STATION & { freq: string; vfoIndex: number });
 			stn.eRT = msg.eRT;
+			if (msg.eRTCharStatus) stn.eRTCharStatus = msg.eRTCharStatus;
 			this.rds.log.push({ time, field: 'eRT', value: msg.eRT, freq, vfoIndex, group: msg.srcGroup });
 		}
 		if (msg.paging !== undefined) {
