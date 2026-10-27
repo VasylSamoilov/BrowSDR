@@ -4,7 +4,7 @@ export interface PagerState {
 	panelOpen: boolean;
 	log: PagerLogEntry[];
 	/** Row filter in the panel: a protocol id or 'all'. */
-	filter: PagerProtocol | 'rds' | 'all';
+	filter: PagerProtocol | 'rds' | 'tmc' | 'all';
 }
 
 export type RdsStations = Record<
@@ -18,12 +18,20 @@ export type RdsStations = Record<
 		rtPlusItem1: string; rtPlusItem1Tag: number;
 		rtPlusItem2: string; rtPlusItem2Tag: number;
 		psCharStatus: number[]; rtCharStatus: number[];
+		/** Map of PI -> EON network entry for display in station card */
+		eonNetworks: Record<string, {
+			pi: string; ps?: string; tp: boolean; ta: boolean;
+			af?: number[];
+			mappedFreqs?: Array<{ tuned: number; other: number }>;
+			ptyOn?: number;
+			pinDay?: number; pinHour?: number; pinMinute?: number;
+		}>;
 	}
 >;
 
 export interface PagerLogEntry {
-	/** Which pager protocol produced this message. 'rds' for RDS Group 7A pages. */
-	protocol: PagerProtocol | 'rds';
+	/** Which pager protocol produced this message. 'rds' for RDS Group 7A pages, 'tmc' for RDS-TMC. */
+	protocol: PagerProtocol | 'rds' | 'tmc';
 	time: string;
 	freq: string;
 	vfoIndex: number;
@@ -35,6 +43,20 @@ export interface PagerLogEntry {
 	/** Signal polarity: true when decoded at inverted polarity. Shared across
 	 * POCSAG, GSC, and FLEX; rendered as an INV/NORM row tag. */
 	inverted?: boolean;
+
+	// -- TMC-specific --
+	/** TMC event code (11-bit, ISO 14819-2) */
+	tmcEvent?: number;
+	/** TMC location code (16-bit) */
+	tmcLocation?: number;
+	/** TMC direction: 'positive' | 'negative' */
+	tmcDirection?: string;
+	/** TMC extent (0-7: number of locations affected beyond primary) */
+	tmcExtent?: number;
+	/** TMC duration code (0-7) */
+	tmcDuration?: number;
+	/** TMC diversion advised flag */
+	tmcDiversion?: boolean;
 
 	// -- POCSAG-specific --
 	/** Function sub-address 0-3 (shown as A-D). POCSAG-specific; optional. */

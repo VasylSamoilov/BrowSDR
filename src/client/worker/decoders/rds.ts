@@ -441,6 +441,16 @@ export class RDSDecoder {
 	private rtPlusToggle = -1;   // last seen toggle bit (-1=unknown)
 	private rtPlusRunning = -1;  // last seen item_running bit
 
+	// eRT+ (ODA AID 0x4BD8): RT+ operating on eRT text
+	private eRTPlusGroup = -1;
+	private eRTPlusCb = 0;       // cb bit from 3A config: 0=RT source, 1=eRT source
+
+	// TMC (ODA AIDs 0x4D2C / 0xCD46 / 0xCD47)
+	private tmcGroup = -1;
+	// Multi-group TMC reassembly: continuity index -> partial parts
+	private tmcContinuity = 0;
+	private tmcParts: Array<{ y: number; z: number } | null> = [null, null, null, null, null];
+
 	// eRT -- Enhanced RadioText (ODA AID 0x6552, IEC 62106-6)
 	// Wire format: identical to Group 2A (4-bit segment, A/B flag, 4 bytes/group)
 	// but carries up to 128 bytes of raw UTF-8 text, CR-terminated.
@@ -1063,7 +1073,10 @@ export class RDSDecoder {
 		this.odaMap.set(key, aid);
 		this.odaMsg.set(key, msg);
 		if (aid === 0x4BD7) this.rtPlusGroup = key;
+		if (aid === 0x4BD8) { this.eRTPlusGroup = key; this.eRTPlusCb = (msg >> 12) & 1; } // eRT+
 		if (aid === 0x6552) this.eRTGroup = key;  // Enhanced RadioText
+		// TMC AIDs: 0x4D2C (standard), 0xCD46/0xCD47 (TMC-Alert)
+		if (aid === 0x4D2C || aid === 0xCD46 || aid === 0xCD47) this.tmcGroup = key;
 		this.callback({ odaAid: aid, odaGroup: odaGroupNum, odaVersion, odaMsg: msg });
 	}
 
@@ -1451,8 +1464,12 @@ export class RDSDecoder {
 		// RT+ decode when this is the group registered for it
 		if (key === this.rtPlusGroup && bv[1] && bv[2] && bv[3])
 			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3]);
+		if (key === this.eRTPlusGroup && bv[1] && bv[2] && bv[3])
+			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3]); // same wire format as RT+
 		if (key === this.eRTGroup && bv[1])
 			this.decodeERT(blockB, bv);
+		if (key === this.tmcGroup && bv[1])
+			this.decodeTMC(blockB, bv);
 	}
 
 	// ── eRT: Enhanced RadioText (ODA AID 0x6552, IEC 62106-6) ────
@@ -1573,6 +1590,87 @@ export class RDSDecoder {
 		}
 	}
 
+	// ── TMC: RDS-TMC (ODA AIDs 0x4D2C / 0xCD46 / 0xCD47) ────────
+	// Based on ISO 14819-1 §9.6 (single-group) and §9.7 (multi-group).
+	// x = block B bits [4:0], y = block C, z = block D.
+	// t = x[4]: 1=tuning info, 0=user message.
+	// f = x[3]: 1=single-group user message, 0=multi-group.
+	private decodeTMC(blockB: number, bv: boolean[]): void {
+		if (!bv[2] || !bv[3]) return;
+		const x = blockB & 0x1f;
+		const y = this.blocks[2];
+		const z = this.blocks[3];
+		const t = (x >> 4) & 1;  // tuning info bit
+		if (t) return;            // tuning info -- system management, no message to emit
+		const f = (x >> 3) & 1;  // single/multi flag
+
+		if (f) {
+			// Single-group user message (ISO 14819-1 §9.6.1)
+			// x[2:0] = duration code, y[15] = diversion, y[14] = direction,
+			// y[13:11] = extent, y[10:0] = event code, z = location code
+			const duration  = x & 0x7;
+			const diversion = (y >> 15) & 1;
+			const direction = (y >> 14) & 1;
+			const extent    = (y >> 11) & 0x7;
+			const event     = y & 0x7ff;
+			const location  = z;
+			this.callback({
+				tmcMessage: {
+					event, location,
+					direction: direction ? 'negative' : 'positive',
+					extent, duration, diversion: diversion === 1,
+					multi: false,
+				}
+			});
+		} else {
+			// Multi-group user message (ISO 14819-1 §9.7)
+			// x[2:0] = continuity index
+			const continuityIndex = x & 0x7;
+			if (continuityIndex !== this.tmcContinuity) {
+				// New message: reset parts
+				this.tmcContinuity = continuityIndex;
+				this.tmcParts = [null, null, null, null, null];
+			}
+			const isFirst = (y >> 15) & 1;
+			const sg      = (y >> 14) & 1;  // second group indicator
+			let groupNum: number;
+			let isLast: boolean;
+			if (isFirst) {
+				groupNum = 0;
+				isLast = false;
+			} else if (sg) {
+				const gsi = (y >> 12) & 0x3;
+				groupNum = 1;
+				isLast = gsi === 0;
+			} else {
+				const gsi = (y >> 12) & 0x3;
+				groupNum = 4 - gsi;
+				isLast = gsi === 0;
+			}
+			this.tmcParts[groupNum] = { y, z };
+			if (isLast && this.tmcParts[0]) {
+				// Decode from first group: direction y0[14], extent y0[13:11], event y0[10:0], location z0
+				const p0 = this.tmcParts[0];
+				const direction = (p0.y >> 14) & 1;
+				const extent    = (p0.y >> 11) & 0x7;
+				const event     = p0.y & 0x7ff;
+				const location  = p0.z;
+				// Duration from subsequent parts (label 0 in freeform fields, 3 bits)
+				// Without a full freeform decoder, default to 0
+				const duration = 0;
+				this.callback({
+					tmcMessage: {
+						event, location,
+						direction: direction ? 'negative' : 'positive',
+						extent, duration, diversion: false,
+						multi: true,
+					}
+				});
+				this.tmcParts = [null, null, null, null, null];
+			}
+		}
+	}
+
 	// ── RT+ tag extraction (IEC 62106-6 A.5.3) ──────────────────
 	// Called when RT A/B flag changes to invalidate tag positions
 	private clearRtPlus(): void {
@@ -1605,9 +1703,10 @@ export class RDSDecoder {
 		const tag2Start = (d >> 5) & 0x3f;
 		const tag2Len   = (d & 0x1f) + 1;  // stored as length-1
 
-		const rt = this.lastRt;
+		// Use eRT text as source when this is an eRT+ group (cb=1 from 3A config)
+		const srcText = (this.eRTPlusCb === 1) ? this.lastERT : this.lastRt;
 		const extract = (s: number, l: number) =>
-			s < rt.length ? rt.slice(s, Math.min(s + l, rt.length)).trimEnd() : '';
+			s < srcText.length ? srcText.slice(s, Math.min(s + l, srcText.length)).trimEnd() : '';
 
 		// type=0 (dummy_class) means no tag; only extract when item is running
 		const t1 = tag1Type > 0 && running ? extract(tag1Start, tag1Len) : '';

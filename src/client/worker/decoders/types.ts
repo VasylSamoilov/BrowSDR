@@ -134,6 +134,16 @@ export interface RDSMessage {
 	srcGroup?: string;   // e.g. "0A", "2A", "2B", "10A", "14B"
 	srcAbFlag?: number;  // A/B flag value (0 or 1) when present, -1 or absent otherwise
 	odaData?: { group: number; version: number; b: number; c: number; d: number };
+	// TMC (ODA AID 0x4D2C / 0xCD46 / 0xCD47)
+	tmcMessage?: {
+		event: number;      // 11-bit event code (ISO 14819-2)
+		location: number;   // 16-bit location code
+		direction: 'positive' | 'negative';
+		extent: number;     // 0-7: how many further locations affected
+		duration: number;   // duration code 0-7
+		diversion: boolean; // diversion advised flag
+		multi: boolean;     // true=decoded from multi-group message
+	};
 	// Group 10A (PTYN) — already declared above with ptynCharStatus
 	// Group 14A (EON)
 	eon?: {

@@ -18,6 +18,8 @@ const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false,
 	eRT: '' as string,
 	eRTPartial: '' as string,
 	eRTCharStatus: [] as number[],
+	// EON cross-referenced networks
+	eonNetworks: {} as Record<string, { pi: string; ps?: string; tp: boolean; ta: boolean; af?: number[]; mappedFreqs?: Array<{tuned: number; other: number}>; ptyOn?: number; pinDay?: number; pinHour?: number; pinMinute?: number }>,
 };
 
 export const rdsMethods = {
@@ -145,6 +147,38 @@ export const rdsMethods = {
 			if (msg.eon.pinDay) eonExtra.push(`PIN:day${msg.eon.pinDay} ${String(msg.eon.pinHour).padStart(2,'0')}:${String(msg.eon.pinMinute).padStart(2,'0')}`);
 			const eonVal = `PI:${msg.eon.pi}${msg.eon.ps ? ' PS:' + msg.eon.ps.trim() : ''}${eonExtra.length ? ' ' + eonExtra.join(' ') : ''}`;
 			this.rds.log.push({ time, field: 'EON', value: eonVal, freq, vfoIndex, group: msg.srcGroup });
+			// Store EON network in station card map
+			stn.eonNetworks[msg.eon.pi] = {
+				pi: msg.eon.pi,
+				ps: msg.eon.ps,
+				tp: msg.eon.tp,
+				ta: msg.eon.ta,
+				af: msg.eon.af,
+				mappedFreqs: msg.eon.mappedFreqs,
+				ptyOn: msg.eon.ptyOn,
+				pinDay: msg.eon.pinDay,
+				pinHour: msg.eon.pinHour,
+				pinMinute: msg.eon.pinMinute,
+			};
+		}
+		if (msg.tmcMessage !== undefined) {
+			const tm = msg.tmcMessage;
+			const text = `EVT:${tm.event} LOC:${tm.location} ${tm.direction === 'negative' ? '◄' : '►'} EXT:${tm.extent}${tm.diversion ? ' DIV' : ''}`;
+			this.rds.log.push({ time, field: 'TMC', value: text, freq, vfoIndex, group: msg.srcGroup });
+			this.pager.log.push({
+				protocol: 'tmc',
+				time, freq, vfoIndex,
+				capcode: `LOC:${tm.location}`,
+				type: tm.multi ? 'multi' : 'single',
+				text,
+				tmcEvent:     tm.event,
+				tmcLocation:  tm.location,
+				tmcDirection: tm.direction,
+				tmcExtent:    tm.extent,
+				tmcDuration:  tm.duration,
+				tmcDiversion: tm.diversion,
+			});
+			this.pager.panelOpen = true;
 		}
 		if (msg.eRT !== undefined) {
 			const stn = this.rds.stations[msg.pi ?? 0] ?? (this.rds.stations[msg.pi ?? 0] = { ...EMPTY_STATION, freq, vfoIndex } as typeof EMPTY_STATION & { freq: string; vfoIndex: number });
