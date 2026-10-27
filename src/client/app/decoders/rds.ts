@@ -232,6 +232,7 @@ export const rdsMethods = {
 		// Auto-set de-emphasis: NA/RBDS uses 75µs, EU/RDS uses 50µs
 		if (region === 'na') vfo.deEmphasis = '75us';
 		else if (region === 'eu') vfo.deEmphasis = '50us';
+		this.updateBackendVfoParams(vfoIndex);
 	},
 	clearRds(this: AppInstance) {
 		this.rds.log = [];
