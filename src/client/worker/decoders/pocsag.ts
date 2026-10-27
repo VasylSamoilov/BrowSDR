@@ -3,18 +3,7 @@ import { POCSAG_CHAR_CORRECTED, POCSAG_CHAR_OK, POCSAG_CHAR_UNCORRECTABLE } from
 import type { CharsetKey } from './charsets';
 import { pocsagCodepage, POCSAG_DEFAULT_CHARSET } from './charsets';
 import { FskBitSlicer, BerWindow } from './fsk-frontend';
-import { pocsagDiagRelock, pocsagDiagDumpCodeword } from './pocsag-diag';
 
-/**
- * Dev-only POCSAG decode diagnostics. When true, each sub-decoder dumps to the
- * console: a LOCK event, and per codeword the raw/corrected hex, BCH error
- * count, type (ADDR/MSG/IDLE/UNCORRECTABLE), and — crucially — for any codeword
- * BCH corrected the list of flipped bit positions with the soft slicer sample
- * at each, so a "why did a clean signal need correction" question is answered
- * with measured evidence (near-zero soft value = marginal slice; cleanly-wrong
- * sign = framing/upstream). Gated on import.meta.env.DEV; zero cost in prod.
- */
-const POCSAG_DEMOD_DIAG = false;
 
 /*
 Copyright (c) 2026, jLynx <https://github.com/jLynx>
@@ -139,8 +128,6 @@ export class _POCSAGSingleBaud {
 	// rate keeps it ~0.
 	static NONCONSEC_MAX_SYNC = 10;
 
-	audioRate: number;
-	spb: number;
 	baudRate: number;
 	onMessage: (msg: POCSAGMessage) => void;
 
@@ -178,12 +165,6 @@ export class _POCSAGSingleBaud {
 	cwBitCnt: number;
 	currentCw: number;
 	batchCwIdx: number;
-	/** Dev-only: rolling 32-deep ring of the soft slice sample for each bit,
-	 * aligned with currentCw, so _onCodeword can report per-bit soft values. */
-	diagSoft: Float32Array = new Float32Array(32);
-	diagPhase: Float32Array = new Float32Array(32);
-	diagRaw: Float32Array = new Float32Array(32);
-	diagSoftPos = 0;
 	// A corrected (1-2 bit) sync accepted WITHOUT a preceding alternating
 	// preamble (i.e. joining an ongoing transmission mid-stream, where the
 	// preamble is long past) is only PROVISIONAL: the first codeword after it
@@ -219,8 +200,6 @@ export class _POCSAGSingleBaud {
 	showSecondGuess: boolean;
 
 	constructor(audioRate: number, baud: number, onMessage: (msg: POCSAGMessage) => void, charset: CharsetKey = POCSAG_DEFAULT_CHARSET) {
-		this.audioRate = audioRate;
-		this.spb = audioRate / baud; // samples per bit
 		this.baudRate = baud;
 		this.onMessage = onMessage;
 		this.charset = charset;
@@ -229,17 +208,6 @@ export class _POCSAGSingleBaud {
 
 		// Shared NFM/2-FSK bit recovery (DC removal + timing PLL + bit slicing).
 		this.slicer = new FskBitSlicer(audioRate, baud, (bit) => this._onBit(bit));
-		if (POCSAG_DEMOD_DIAG) {
-			// Capture the soft slice sample for each bit into a rolling 32-deep
-			// ring aligned with the codeword accumulator, so _onCodeword can
-			// report the soft value at every bit position of the word.
-			this.slicer.onSoftBit = (soft: number, phase: number, raw: number) => {
-				this.diagSoft[this.diagSoftPos] = soft;
-				this.diagPhase[this.diagSoftPos] = phase;
-				this.diagRaw[this.diagSoftPos] = raw;
-				this.diagSoftPos = (this.diagSoftPos + 1) % 32;
-			};
-		}
 		this.shiftRegHi = 0;
 
 		this.shiftReg = 0;
@@ -366,15 +334,7 @@ export class _POCSAGSingleBaud {
 		if (this.batchRemain > 0) {
 			// Inside a batch: accumulate 32-bit codewords by frame count.
 			this.currentCw = ((this.currentCw << 1) | bit) >>> 0;
-			if (POCSAG_DEMOD_DIAG)
-				console.debug(
-					`[POCSAG ${this.baudRate}bd BIT] bit=${bit} cwBitCnt=${this.cwBitCnt} batchRemain=${this.batchRemain} shiftReg=0x${this.shiftReg.toString(16).padStart(8, '0')} currentCw=0x${this.currentCw.toString(16).padStart(8, '0')}`,
-				);
 			if (++this.cwBitCnt < 32) return;
-			if (POCSAG_DEMOD_DIAG)
-				console.debug(
-					`[POCSAG ${this.baudRate}bd CW_COMPLETE] batchCwIdx=${this.batchCwIdx} batchRemain=${this.batchRemain} currentCw=0x${this.currentCw.toString(16).padStart(8, '0')} shiftReg=0x${this.shiftReg.toString(16).padStart(8, '0')}`,
-				);
 			this.cwBitCnt = 0;
 			const raw = this.currentCw >>> 0;
 			this.currentCw = 0;
@@ -392,10 +352,6 @@ export class _POCSAGSingleBaud {
 				// (one extra or missing bit anywhere in the 16 codewords) leaves
 				// a slipped bit in shiftReg that acts as the FSC's first bit,
 				// causing resyncBits=31 and misframing the entire next batch.
-				if (POCSAG_DEMOD_DIAG)
-					console.info(
-						`[POCSAG ${this.baudRate}bd BATCH_DONE] shiftReg_before=0x${this.shiftReg.toString(16).padStart(8, '0')} → resetting to 0`,
-					);
 				this.shiftReg = 0;
 				this.shiftRegHi = 0;
 			}
@@ -403,10 +359,6 @@ export class _POCSAGSingleBaud {
 		}
 
 		// Between batches: search bit-by-bit for the next FSC within the window.
-		if (POCSAG_DEMOD_DIAG)
-			console.debug(
-				`[POCSAG ${this.baudRate}bd FSC_SEARCH] resyncBits=${this.resyncBits + 1} shiftReg=0x${(this.shiftReg >>> 0).toString(16).padStart(8, '0')}`,
-			);
 		this._fscSearch();
 	}
 
@@ -430,7 +382,6 @@ export class _POCSAGSingleBaud {
 			const trial = (this.inverted ? ~w : w) >>> 0;
 			const r = this._eccCorrect(trial);
 			if (r.errors < 3 && r.cw >>> 0 === _POCSAGSingleBaud.SYNC_WORD) {
-				if (POCSAG_DEMOD_DIAG) pocsagDiagRelock(this, w, _pocsagHamming(w, curTarget));
 				this._onSync();
 				return;
 			}
@@ -534,8 +485,6 @@ export class _POCSAGSingleBaud {
 		const result = this._eccCorrect(cw);
 		const errors = result.errors;
 		const corrected = result.cw;
-
-		if (POCSAG_DEMOD_DIAG) pocsagDiagDumpCodeword(this, cw, corrected, errors);
 
 		// Confirm or reject a PROVISIONAL lock (corrected sync accepted without a
 		// preamble, e.g. a mid-transmission join). The first codeword decides: a
