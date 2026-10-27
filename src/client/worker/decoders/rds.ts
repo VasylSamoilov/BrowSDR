@@ -19,73 +19,11 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 */
 
 import type { RDSMessage, RdsStatus } from './types';
+import { RDSOdaDecoder } from './rds-oda';
+import { RDSDemodulator } from './rds-demod';
+import { buildPS, buildRT, buildStatus, acceptChar as acceptCharFn } from './rds-utils';
+import { PTY_LABELS_EU, PTY_LABELS_NA, LIC_NAMES, eccToCountry, COVERAGE_NAMES, rbdsCallsign, decodeAfCode, decodeLfMfCode, rdsChar } from './rds-tables';
 
-// ── RDS Constants ────────────────────────────────────────────────
-const RDS_BITRATE = 1187.5;
-const RDS_PILOT = 19000; // stereo pilot — RDS subcarrier = 3 × pilot
-
-// Offset words for each block position (10-bit, per IEC 62106)
-const OFFSET_A  = 0x0fc;
-const OFFSET_B  = 0x198;
-const OFFSET_C  = 0x168;
-const OFFSET_CP = 0x350;
-const OFFSET_D  = 0x1b4;
-
-// Generator polynomial for RDS checkword (x^10 + x^8 + x^7 + x^5 + x^4 + x^3 + 1)
-const RDS_POLY = 0x5b9;
-const SYNDROME_A  = calcSyndrome(OFFSET_A);
-const SYNDROME_B  = calcSyndrome(OFFSET_B);
-const SYNDROME_C  = calcSyndrome(OFFSET_C);
-const SYNDROME_CP = calcSyndrome(OFFSET_CP);
-const SYNDROME_D  = calcSyndrome(OFFSET_D);
-
-// ── BCH 1-bit error correction table ────────────────────────────
-// For each offset, maps syndrome -> bit position to flip (0-25, or -1 = no 1-bit correction).
-// Built once at module load. Handles the 26-bit block (16-bit data + 10-bit checkword).
-function buildFecTable(offsetWord: number): Map<number, number> {
-	const table = new Map<number, number>();
-	for (let bit = 0; bit < 26; bit++) {
-		// Flip one bit in a valid block (data=0, checkword=offset) and compute syndrome
-		const block = (0 << 10) | offsetWord; // valid block with data=0
-		const flipped = (block ^ (1 << (25 - bit))) & 0x3ffffff;
-		const syn = calcSyndrome(flipped);
-		if (syn !== 0) table.set(syn, bit);
-	}
-	return table;
-}
-const FEC_A  = buildFecTable(OFFSET_A);
-const FEC_B  = buildFecTable(OFFSET_B);
-const FEC_C  = buildFecTable(OFFSET_C);
-const FEC_CP = buildFecTable(OFFSET_CP);
-const FEC_D  = buildFecTable(OFFSET_D);
-const FEC_TABLES = [FEC_A, FEC_B, FEC_C, FEC_D];
-
-// ── RDS decoder status ───────────────────────────────────────────
-// RdsStatus is defined in types.ts
-
-function calcSyndrome(offset: number): number {
-	let reg = 0;
-	for (let i = 25; i >= 0; i--) {
-		const bit = i >= 10 ? 0 : (offset >> i) & 1;
-		const fb = ((reg >> 9) & 1) ^ bit;
-		reg = (reg << 1) & 0x3ff;
-		if (fb) reg ^= RDS_POLY;
-	}
-	return reg;
-}
-
-function computeSyndrome(block: number): number {
-	let reg = 0;
-	for (let i = 25; i >= 0; i--) {
-		const fb = ((reg >> 9) & 1) ^ ((block >> i) & 1);
-		reg = (reg << 1) & 0x3ff;
-		if (fb) reg ^= RDS_POLY;
-	}
-	return reg;
-}
-
-// ── EU PTY labels (IEC 62106 Table 11) ──────────────────────────
-import { PTY_LABELS_EU, PTY_LABELS_NA, makeBandpass, makeButterworthLpf4, LIC_NAMES, eccToCountry, COVERAGE_NAMES, rbdsCallsign, decodeAfCode, decodeLfMfCode, rdsChar, RTPLUS_TYPES, type BiquadSection } from './rds-tables';
 export class RDSDecoder {
 	private callback: (msg: RDSMessage) => void;
 	private region: string;
@@ -93,61 +31,22 @@ export class RDSDecoder {
 	private currentGroup = '';
 
 	// 19 kHz pilot PLL — phasor rotation (zero trig calls per sample)
-	private phasorRe = 1;
-	private phasorIm = 0;
-	private incRe: number;
-	private incIm: number;
-	private pilotAlpha: number;
-	private pilotBpf: BiquadSection;
-	private pilotMixI = 0;
-	private pilotMixQ = 0;
-	private pilotMixAlpha: number;
-	private phasorCount = 0;
 
-	// 4th-order Butterworth LPF for RDS I and Q channels
-	private bqI: BiquadSection[];
-	private bqQ: BiquadSection[];
+	// DSP demodulator -- see rds-demod.ts
+	private readonly demod: RDSDemodulator;
+	// Block data mirrored from demod for fast local access (readonly arrays, contents mutated)
+	private readonly blocks: number[] = [0, 0, 0, 0];
+	private readonly blockValid: boolean[] = [false, false, false, false];
+	private readonly blockCorrected: boolean[] = [false, false, false, false];
+	// ODA accessor closures (class fields so they bind `this` correctly)
+	private readonly _getOdaBlocks = () => this.blocks;
+	private readonly _getOdaBlockValid = () => this.blockValid;
+	private readonly _getOdaBlockQuality = (idx: number) => (this.blockValid[idx] ? (this.blockCorrected[idx] ? 1 : 0) : 2) as number;
+	private readonly _getOdaLastRt = () => this.lastRt;
 
-	// Symbol timing recovery
-	private samplesPerBit: number;
-	private clockPhase = 0;
-	private prevBpskI = 0;
-	private prevBpskQ = 0;
-	private clockPowerI = 0;
-	private clockPowerQ = 0;
-	private clockUsesQ = false;
-	private symbolIndex = 0;
-	private pairEnergy = [0, 0];
-	private pairParity = 0;  // start decoding immediately; self-corrects
-	private prevHalfI = 0;
-	private prevHalfQ = 0;
-	private prevSymI = 0;
-	private prevSymQ = 0;
+	// ODA decoders (RT+, eRT+, eRT, TMC) -- see rds-oda.ts
+	private readonly oda: RDSOdaDecoder;
 
-	// Block assembly
-	private shiftReg = 0;
-	private bitCount = 0;
-
-	// Sync state machine
-	private synced = false;
-	private blockIndex = 0;
-	private goodBlocks = 0;
-	private blocks: number[] = [0, 0, 0, 0];
-	private blockValid: boolean[] = [false, false, false, false];
-	private blockCorrected: boolean[] = [false, false, false, false]; // true = passed via BCH correction
-	private blockErrors = 0;
-	private nbUnsync = 0;  // consecutive groups with no valid blocks
-
-	// BER tracking -- rolling window over last 100 blocks
-	private readonly BER_WINDOW = 100;
-	private berHistory: Uint8Array = new Uint8Array(100).fill(1); // 1=bad, 0=good/corrected
-	private berHead = 0;
-	private berSum = 100;  // count of bad blocks in window (starts fully bad)
-	private berCorrectedBlocks = 0; // session corrected block count
-	private berTotalBlocks = 0;     // session total block count
-
-	// Pilot power tracking (19 kHz, proxy for RDS signal quality)
-	private pilotPower = 0;
 
 	// ── Decoded RDS data ──────────────────────────────────────────
 	private pi = 0;
@@ -172,49 +71,13 @@ export class RDSDecoder {
 	private afCount = 0;
 	private afLastCount = -1;
 	// Group 0/15B — MS and DI
-	private ms = -1;          // last emitted M/S (-1=unknown)
-	private diWord = -1;      // assembled 4-bit DI codeword (-1=incomplete)
-	private diBits = new Int8Array(4).fill(-1); // d3..d0 indexed by seg (0-3)
+	private ms = -1;
+	private diWord = -1;
+	private diBits = new Int8Array(4).fill(-1);
 
 	// Group 3A — ODA application registration: (groupNum<<1)|version → AID
 	private odaMap: Map<number, number> = new Map();
-	// Group 3A message bits: key → block C value (app-specific config, e.g. RT+ CB/SCB/template)
 	private odaMsg: Map<number, number> = new Map();
-
-	// RT+ (ODA AID 0x4BD7)
-	private rtPlusGroup = -1;
-	private rtPlusText1 = '';
-	private rtPlusText2 = '';
-	private rtPlusTag1 = 0;
-	private rtPlusTag2 = 0;
-	private rtPlusToggle = -1;   // last seen toggle bit (-1=unknown)
-	private rtPlusRunning = -1;  // last seen item_running bit
-
-	// eRT+ (ODA AID 0x4BD8): RT+ operating on eRT text -- fully separate from RT+
-	private eRTPlusGroup = -1;
-	private eRTPlusCb = 0;        // cb bit from 3A: 0=RT source, 1=eRT source
-	private eRTPlusText1 = '';
-	private eRTPlusText2 = '';
-	private eRTPlusTag1 = 0;
-	private eRTPlusTag2 = 0;
-	private eRTPlusToggle = -1;
-	private eRTPlusRunning = -1;
-
-	// TMC (ODA AIDs 0x4D2C / 0xCD46 / 0xCD47)
-	private tmcGroup = -1;
-	// Multi-group TMC reassembly: continuity index -> partial parts
-	private tmcContinuity = 0;
-	private tmcParts: Array<{ y: number; z: number } | null> = [null, null, null, null, null];
-
-	// eRT -- Enhanced RadioText (ODA AID 0x6552, IEC 62106-6)
-	// Wire format: identical to Group 2A (4-bit segment, A/B flag, 4 bytes/group)
-	// but carries up to 128 bytes of raw UTF-8 text, CR-terminated.
-	private eRTGroup = -1;
-	private eRTBytes: Uint8Array = new Uint8Array(128);
-	private eRTFilled: boolean[] = new Array<boolean>(128).fill(false);
-	private eRTQuality: number[] = new Array<number>(128).fill(0);
-	private eRTAbFlag = -1;
-	private lastERT = '';
 
 	// Group 4A — CT clock
 	private lastCt = '';
@@ -243,15 +106,21 @@ export class RDSDecoder {
 		this.callback = (msg: RDSMessage) => callback({ srcGroup: this.currentGroup || undefined, ...msg });
 		this.region = region;
 
-		const pilotFreq = (2 * Math.PI * RDS_PILOT) / sampleRate;
-		this.incRe = Math.cos(pilotFreq);
-		this.incIm = Math.sin(pilotFreq);
-		this.pilotBpf = makeBandpass(RDS_PILOT, 30, sampleRate);
-		this.pilotAlpha = (2 * Math.PI * 100) / sampleRate;
-		this.pilotMixAlpha = 1 - Math.exp((-2 * Math.PI * 30) / sampleRate);
-		this.samplesPerBit = sampleRate / RDS_BITRATE;
-		this.bqI = makeButterworthLpf4(2400, sampleRate);
-		this.bqQ = makeButterworthLpf4(2400, sampleRate);
+		// DSP demodulator calls back when a complete group is assembled
+		this.demod = new RDSDemodulator(sampleRate, (blks, bv, bc) => {
+			// Mirror demod block data to local fields for type-safe access
+			for (let i = 0; i < 4; i++) { this.blocks[i] = blks[i]; this.blockValid[i] = bv[i]; this.blockCorrected[i] = bc[i]; }
+			this.decodeGroup();
+		});
+
+		// Initialize ODA decoder (RT+, eRT+, eRT, TMC)
+		this.oda = new RDSOdaDecoder(
+			this._getOdaBlocks,
+			this._getOdaBlockValid,
+			this._getOdaBlockQuality,
+			this._getOdaLastRt,
+			this.callback,
+		);
 	}
 
 	setRegion(region: string): void {
@@ -266,190 +135,8 @@ export class RDSDecoder {
 		}
 	}
 
-	process(samples: Float32Array): void {
-		for (let i = 0; i < samples.length; i++) {
-			const sample = samples[i];
-			const pilotBpf = this.pilotBpf.process(sample);
-			const pllCos = this.phasorRe;
-			const pllSin = this.phasorIm;
-
-			// Quadrature mix + narrow LPF → phase error
-			this.pilotMixI += this.pilotMixAlpha * (pilotBpf * pllCos - this.pilotMixI);
-			this.pilotMixQ += this.pilotMixAlpha * (pilotBpf * pllSin - this.pilotMixQ);
-			const pp = this.pilotMixI * this.pilotMixI + this.pilotMixQ * this.pilotMixQ;
-			// Track pilot power (slow IIR for status reporting)
-			this.pilotPower += 0.0001 * (pp - this.pilotPower);
-			if (pp > 1e-12) {
-				const corr = ((this.pilotMixI * this.pilotMixQ) / pp) * this.pilotAlpha;
-				this.phasorRe += this.phasorIm * corr;
-				this.phasorIm -= this.phasorRe * corr;
-			}
-
-			// Advance phasor by one sample
-			const newRe = this.phasorRe * this.incRe - this.phasorIm * this.incIm;
-			const newIm = this.phasorRe * this.incIm + this.phasorIm * this.incRe;
-			this.phasorRe = newRe;
-			this.phasorIm = newIm;
-			if ((++this.phasorCount & 1023) === 0) {
-				const mag = 1 / Math.sqrt(this.phasorRe * this.phasorRe + this.phasorIm * this.phasorIm);
-				this.phasorRe *= mag; this.phasorIm *= mag;
-			}
-
-			// Coherent 57 kHz via triple-angle formula
-			const c = pllCos, s = pllSin;
-			const cos3 = 4*c*c*c - 3*c;
-			const sin3 = 3*s - 4*s*s*s;
-
-			let filtI = sample * cos3;
-			for (let k = 0; k < this.bqI.length; k++) filtI = this.bqI[k].process(filtI);
-			let filtQ = sample * sin3;
-			for (let k = 0; k < this.bqQ.length; k++) filtQ = this.bqQ[k].process(filtQ);
-
-			// Pick the stronger quadrature for clock recovery
-			this.clockPowerI += 0.001 * (filtI * filtI - this.clockPowerI);
-			this.clockPowerQ += 0.001 * (filtQ * filtQ - this.clockPowerQ);
-			if (this.clockPowerQ > this.clockPowerI * 2) this.clockUsesQ = true;
-			else if (this.clockPowerI > this.clockPowerQ * 2) this.clockUsesQ = false;
-
-			const timing  = this.clockUsesQ ? filtQ : filtI;
-			const previous = this.clockUsesQ ? this.prevBpskQ : this.prevBpskI;
-			const symbolPeriod = this.samplesPerBit / 2;
-			const prevPhase = this.clockPhase;
-			this.clockPhase += 1;
-			if (timing > 0 !== previous > 0) {
-				const error = this.clockPhase > symbolPeriod / 2 ? this.clockPhase - symbolPeriod : this.clockPhase;
-				this.clockPhase -= error * 0.05;
-			}
-			this.prevBpskI = filtI; this.prevBpskQ = filtQ;
-
-			if (this.clockPhase >= symbolPeriod / 2 && prevPhase < symbolPeriod / 2) {
-				const symI = this.prevHalfI - filtI;
-				const symQ = this.prevHalfQ - filtQ;
-				const parity = this.symbolIndex & 1;
-				this.pairEnergy[parity] += symI * symI + symQ * symQ;
-				if ((this.symbolIndex & 799) === 0) {
-					const nextParity = this.pairEnergy[0] > this.pairEnergy[1] ? 0 : 1;
-					if (nextParity !== this.pairParity) {
-						this.pairParity = nextParity;
-						this.prevSymI = 0; this.prevSymQ = 0;
-						// Switch parity silently -- do NOT lose sync
-					}
-					this.pairEnergy.fill(0);
-				}
-				if (parity === this.pairParity) {
-					const diffProd = symI * this.prevSymI + symQ * this.prevSymQ;
-					this.processBit(diffProd < 0 ? 1 : 0);
-					this.prevSymI = symI; this.prevSymQ = symQ;
-				}
-				this.prevHalfI = filtI; this.prevHalfQ = filtQ;
-				this.symbolIndex++;
-			}
-			if (this.clockPhase >= symbolPeriod) this.clockPhase -= symbolPeriod;
-		}
-	}
-
-	private processBit(bit: number): void {
-		this.shiftReg = ((this.shiftReg << 1) | bit) & 0x3ffffff;
-		this.bitCount++;
-
-		if (!this.synced) {
-			if (this.bitCount >= 26) {
-				const syn = computeSyndrome(this.shiftReg);
-				const index = [SYNDROME_A, SYNDROME_B, SYNDROME_C, SYNDROME_D].indexOf(syn);
-				const position = syn === SYNDROME_CP ? 2 : index;
-				if (position !== -1) {
-					this.synced = true;
-					this.goodBlocks = 1;
-					this.blockErrors = 0;
-					this.blockValid.fill(false);
-					this.blocks[position] = (this.shiftReg >> 10) & 0xffff;
-					this.blockValid[position] = true;
-					this.blockIndex = (position + 1) & 3;
-					this.bitCount = 0;
-				}
-			}
-			return;
-		}
-
-		if (this.bitCount < 26) return;
-		this.bitCount = 0;
-		if (this.blockIndex === 0) { this.goodBlocks = 0; this.blockValid.fill(false); }
-
-		const syn = computeSyndrome(this.shiftReg);
-		const expectedSyn = [SYNDROME_A, SYNDROME_B, SYNDROME_C, SYNDROME_D][this.blockIndex];
-		const isValid = syn === expectedSyn || (this.blockIndex === 2 && syn === SYNDROME_CP);
-
-		this.berTotalBlocks++;
-
-		if (isValid) {
-			this.blocks[this.blockIndex] = (this.shiftReg >> 10) & 0xffff;
-			this.blockValid[this.blockIndex] = true;
-			this.blockCorrected[this.blockIndex] = false; // clean
-			this.goodBlocks++;
-			this.blockErrors = 0;
-			// BER: good block
-			this.berSum -= this.berHistory[this.berHead];
-			this.berHistory[this.berHead] = 0;
-			this.berHead = (this.berHead + 1) % this.BER_WINDOW;
-		} else {
-			// Attempt BCH 1-bit correction
-			const fecTable = this.blockIndex === 2 && syn !== expectedSyn
-				? (FEC_TABLES[this.blockIndex].get(syn) !== undefined ? FEC_TABLES[this.blockIndex] : FEC_CP)
-				: FEC_TABLES[this.blockIndex];
-			const errBit = fecTable.get(syn);
-			if (errBit !== undefined) {
-				// Correctable 1-bit error
-				const corrected = (this.shiftReg ^ (1 << (25 - errBit))) & 0x3ffffff;
-				this.blocks[this.blockIndex] = (corrected >> 10) & 0xffff;
-				this.blockValid[this.blockIndex] = true;
-				this.blockCorrected[this.blockIndex] = true;
-				this.goodBlocks++;
-				this.blockErrors = 0;
-				this.berCorrectedBlocks++;
-				// BER: corrected block counts as partial error
-				this.berSum -= this.berHistory[this.berHead];
-				this.berHistory[this.berHead] = 0; // still counts as received
-				this.berHead = (this.berHead + 1) % this.BER_WINDOW;
-			} else {
-				this.blockValid[this.blockIndex] = false;
-				// BER: bad block
-				this.berSum -= this.berHistory[this.berHead];
-				this.berHistory[this.berHead] = 1;
-				this.berHead = (this.berHead + 1) % this.BER_WINDOW;
-				this.berSum++;
-				if (++this.blockErrors >= 16) {
-					// Only lose sync after many consecutive bad blocks
-					this.synced = false; this.goodBlocks = 0; this.blockErrors = 0;
-					return;
-				}
-			}
-		}
-
-		this.blockIndex = (this.blockIndex + 1) & 3;
-		if (this.blockIndex === 0 && this.goodBlocks >= 2) this.decodeGroup();
-		if (this.blockIndex === 0) {
-			if (this.goodBlocks === 0) {
-				if (++this.nbUnsync >= 4) {
-					this.synced = false; this.nbUnsync = 0;
-				}
-			} else {
-				this.nbUnsync = 0;
-			}
-			this.goodBlocks = 0; this.blockValid.fill(false); this.blockErrors = 0;
-		}
-	}
-
+	process(samples: Float32Array): void { this.demod.process(samples); }
 	// quality: 0=clean block, 1=BCH-corrected, 2=uncorrectable/lost
-	private acceptChar(pos: number, code: number, chars: Array<string | null>, status: number[], quality: number): void {
-		if (code === 0x0d && chars === this.rtChars) { chars[pos] = '\r'; return; }
-		if (code === 0x00) return;
-		// Only overwrite if new data is better quality (lower = better).
-		// On first receive (null) always accept. On retransmission keep best char.
-		if (chars[pos] !== null && quality > status[pos]) return;
-		chars[pos] = rdsChar(code, this.region);
-		status[pos] = quality;
-	}
-
 	private _handlePiChange(pi: number): void {
 		if (pi === this.pi || pi === 0) return;
 		this.psChars.fill(null); this.psStatus.fill(0);
@@ -460,7 +147,7 @@ export class RDSDecoder {
 		this.ecc = -1; this.lic = -1;
 		this.afList = []; this.afCount = 0; this.afLastCount = -1;
 		this.odaMap.clear(); this.eonMap.clear(); this.odaMsg.clear();
-		this.rtPlusGroup = -1; this.rtPlusText1 = ''; this.rtPlusText2 = '';
+		this.oda.reset();
 		this.pi = pi;
 		const piCc = (pi >> 12) & 0xf;
 		const piCoverage = (pi >> 8) & 0xf;
@@ -560,9 +247,9 @@ export class RDSDecoder {
 		if (bv[3]) {
 			const d = this.blocks[3];
 			const q = this.blockQuality(3);
-			this.acceptChar(seg * 2,     (d >> 8) & 0xff, this.psChars, this.psStatus, q);
-			this.acceptChar(seg * 2 + 1, d & 0xff,        this.psChars, this.psStatus, q);
-			const ps = this.buildPS();
+			acceptCharFn(seg * 2,     (d >> 8, this.rtChars, this.region) & 0xff, this.psChars, this.psStatus, q);
+			acceptCharFn(seg * 2 + 1, d & 0xff,        this.psChars, this.psStatus, q, this.rtChars, this.region);
+			const ps = buildPS(this.psChars);
 			if (ps && ps !== this.lastPs) { this.lastPs = ps; this.callback({ ps, psCharStatus: [...this.psStatus] }); }
 		}
 	}
@@ -751,20 +438,20 @@ export class RDSDecoder {
 		if (abFlag !== this.rtAbFlag || version !== this.rtVersion) {
 			this.rtChars.fill(null); this.rtStatus.fill(0); this.lastRt = '';
 			// RT A/B flip invalidates RT+ tag positions (they reference old RT)
-			this.clearRtPlus();
+			this.oda.clearRtPlus();
 		}
 		this.rtAbFlag = abFlag; this.rtVersion = version;
 		const seg = blockB & 0x0f;
 		if (version === 0) {
-			if (bv[2]) { const c = this.blocks[2]; const q = this.blockQuality(2); this.acceptChar(seg*4,   (c>>8)&0xff, this.rtChars, this.rtStatus, q); this.acceptChar(seg*4+1, c&0xff, this.rtChars, this.rtStatus, q); }
-			if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); this.acceptChar(seg*4+2, (d>>8)&0xff, this.rtChars, this.rtStatus, q); this.acceptChar(seg*4+3, d&0xff, this.rtChars, this.rtStatus, q); }
+			if (bv[2]) { const c = this.blocks[2]; const q = this.blockQuality(2); acceptCharFn(seg*4,   (c>>8, this.rtChars, this.region)&0xff, this.rtChars, this.rtStatus, q); acceptCharFn(seg*4+1, c&0xff, this.rtChars, this.rtStatus, q, this.rtChars, this.region); }
+			if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); acceptCharFn(seg*4+2, (d>>8, this.rtChars, this.region)&0xff, this.rtChars, this.rtStatus, q); acceptCharFn(seg*4+3, d&0xff, this.rtChars, this.rtStatus, q, this.rtChars, this.region); }
 		} else if (bv[3]) {
 			const d = this.blocks[3]; const q = this.blockQuality(3);
-			this.acceptChar(seg*2,   (d>>8)&0xff, this.rtChars, this.rtStatus, q);
-			this.acceptChar(seg*2+1, d&0xff,      this.rtChars, this.rtStatus, q);
+			acceptCharFn(seg*2,   (d>>8, this.rtChars, this.region)&0xff, this.rtChars, this.rtStatus, q);
+			acceptCharFn(seg*2+1, d&0xff,      this.rtChars, this.rtStatus, q, this.rtChars, this.region);
 		}
-		const rt = this.buildRT();
-		if (rt && rt.length >= 4 && rt !== this.lastRt) { this.lastRt = rt; this.callback({ rt, rtCharStatus: this.buildStatus(this.rtChars, this.rtStatus), srcAbFlag: abFlag }); }
+		const rt = buildRT(this.rtChars);
+		if (rt && rt.length >= 4 && rt !== this.lastRt) { this.lastRt = rt; this.callback({ rt, rtCharStatus: buildStatus(this.rtChars, this.rtStatus), srcAbFlag: abFlag }); }
 	}
 
 	// ── Group 3A: ODA application identification ─────────────────
@@ -780,11 +467,10 @@ export class RDSDecoder {
 		if (this.odaMap.get(key) === aid && this.odaMsg.get(key) === msg) return;
 		this.odaMap.set(key, aid);
 		this.odaMsg.set(key, msg);
-		if (aid === 0x4BD7) this.rtPlusGroup = key;
-		if (aid === 0x4BD8) { this.eRTPlusGroup = key; this.eRTPlusCb = (msg >> 12) & 1; } // eRT+
-		if (aid === 0x6552) this.eRTGroup = key;  // Enhanced RadioText
-		// TMC AIDs: 0x4D2C (standard), 0xCD46/0xCD47 (TMC-Alert)
-		if (aid === 0x4D2C || aid === 0xCD46 || aid === 0xCD47) this.tmcGroup = key;
+		if (aid === 0x4BD7) this.oda.rtPlusGroup = key;
+		if (aid === 0x4BD8) { this.oda.eRTPlusGroup = key; this.oda.eRTPlusCb = (msg >> 12) & 1; }
+		if (aid === 0x6552) this.oda.eRTGroup = key;
+		if (aid === 0x4D2C || aid === 0xCD46 || aid === 0xCD47) this.oda.tmcGroup = key;
 		this.callback({ odaAid: aid, odaGroup: odaGroupNum, odaVersion, odaMsg: msg });
 	}
 
@@ -819,8 +505,8 @@ export class RDSDecoder {
 			this.ptynChars.fill(null); this.ptynStatus.fill(0); this.lastPtyn = '';
 		}
 		const seg = blockB & 1;
-		if (bv[2]) { const c = this.blocks[2]; const q = this.blockQuality(2); this.acceptChar(seg*4,   (c>>8)&0xff, this.ptynChars, this.ptynStatus, q); this.acceptChar(seg*4+1, c&0xff, this.ptynChars, this.ptynStatus, q); }
-		if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); this.acceptChar(seg*4+2, (d>>8)&0xff, this.ptynChars, this.ptynStatus, q); this.acceptChar(seg*4+3, d&0xff, this.ptynChars, this.ptynStatus, q); }
+		if (bv[2]) { const c = this.blocks[2]; const q = this.blockQuality(2); acceptCharFn(seg*4,   (c>>8, this.rtChars, this.region)&0xff, this.ptynChars, this.ptynStatus, q); acceptCharFn(seg*4+1, c&0xff, this.ptynChars, this.ptynStatus, q, this.rtChars, this.region); }
+		if (bv[3]) { const d = this.blocks[3]; const q = this.blockQuality(3); acceptCharFn(seg*4+2, (d>>8, this.rtChars, this.region)&0xff, this.ptynChars, this.ptynStatus, q); acceptCharFn(seg*4+3, d&0xff, this.ptynChars, this.ptynStatus, q, this.rtChars, this.region); }
 		if (!this.ptynChars.includes(null)) {
 			const ptyn = (this.ptynChars as string[]).join('').trimEnd();
 			if (ptyn && ptyn !== this.lastPtyn) { this.lastPtyn = ptyn; this.callback({ ptyn, ptynCharStatus: [...this.ptynStatus], srcAbFlag: this.ptynAbFlag }); }
@@ -1029,18 +715,7 @@ export class RDSDecoder {
 	private decodeOdaGroup(groupNum: number, version: number, blockB: number, bv: boolean[]): void {
 		const key = (groupNum << 1) | version;
 		const aid = this.odaMap.get(key);
-		// Forward raw ODA payload for any consumer (TMC decoder, pager, etc.)
-		if (aid !== undefined && bv[2] && bv[3])
-			this.callback({ odaData: { group: groupNum, version, b: blockB & 0x1f, c: this.blocks[2], d: this.blocks[3] } });
-		// RT+ decode when this is the group registered for it
-		if (key === this.rtPlusGroup && bv[1] && bv[2] && bv[3])
-			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3]);
-		if (key === this.eRTPlusGroup && bv[1] && bv[2] && bv[3])
-			this.decodeERtPlus(blockB, this.blocks[2], this.blocks[3]);
-		if (key === this.eRTGroup && bv[1])
-			this.decodeERT(blockB, bv);
-		if (key === this.tmcGroup && bv[1])
-			this.decodeTMC(blockB, bv);
+		if (aid !== undefined) this.oda.dispatch(key, groupNum, version, blockB, bv);
 	}
 
 	// ── eRT: Enhanced RadioText (ODA AID 0x6552, IEC 62106-6) ────
@@ -1053,268 +728,7 @@ export class RDSDecoder {
 	//  - isComplete(): sequential fill has reached the CR terminator or pos 128.
 	//  - sanitizeUtf8(): incomplete/invalid multibyte sequences replaced with '?'.
 	//  - Per-codepoint quality: worst quality byte in the codepoint's byte span.
-	private decodeERT(blockB: number, bv: boolean[]): void {
-		const abFlag = (blockB >> 4) & 1;
-		if (abFlag !== this.eRTAbFlag) {
-			this.eRTAbFlag = abFlag;
-			this.eRTBytes.fill(0);
-			this.eRTFilled.fill(false);
-			this.eRTQuality.fill(0);
-			this.lastERT = '';
-		}
-		const seg = blockB & 0x0f;
-		const base = seg * 4;
-		if (base + 3 >= 128) return;
-
-		const writeByte = (pos: number, val: number, q: number) => {
-			if (!this.eRTFilled[pos]) {
-				// First receive -- store value and quality
-				this.eRTBytes[pos] = val;
-				this.eRTFilled[pos] = true;
-				this.eRTQuality[pos] = q;
-			} else if (q < this.eRTQuality[pos]) {
-				// Better quality on re-receive: update value and quality
-				this.eRTBytes[pos] = val;
-				this.eRTQuality[pos] = q;
-			}
-			// Worse or equal quality: keep existing value
-		};
-		if (bv[2]) {
-			const c = this.blocks[2]; const q = this.blockQuality(2);
-			writeByte(base,     (c >> 8) & 0xff, q);
-			writeByte(base + 1, c & 0xff,         q);
-		} else {
-			// Block C lost: fill with space (0x20) at quality=2 so sequential fill can advance
-			writeByte(base,     0x20, 2);
-			writeByte(base + 1, 0x20, 2);
-		}
-		if (bv[3]) {
-			const d = this.blocks[3]; const q = this.blockQuality(3);
-			writeByte(base + 2, (d >> 8) & 0xff, q);
-			writeByte(base + 3, d & 0xff,         q);
-		} else {
-			// Block D lost: fill with space at quality=2
-			writeByte(base + 2, 0x20, 2);
-			writeByte(base + 3, 0x20, 2);
-		}
-
-		// Sequential length: count filled bytes from pos 0 (redsea sequential_length_)
-		let seqLen = 0;
-		while (seqLen < 128 && this.eRTFilled[seqLen]) {
-			if (this.eRTBytes[seqLen] === 0x0d) { seqLen++; break; } // CR terminator
-			seqLen++;
-		}
-		if (seqLen === 0) return;
-
-		// isComplete: CR found, or all 128 bytes received
-		const hasCr = this.eRTBytes[seqLen - 1] === 0x0d;
-		const isComplete = hasCr || seqLen >= 128;
-		// For partial: build from what we have so far; for complete: trim CR
-		const rawLen = hasCr ? seqLen - 1 : seqLen;
-
-		// Walk bytes, validate UTF-8 sequences (redsea sanitizeUtf8 logic),
-		// assemble per-codepoint quality (worst byte quality in the codepoint).
-		const { chars, cpQuality } = this._ertDecodeUtf8(rawLen);
-		while (chars.length > 0 && chars[chars.length - 1] === ' ') { chars.pop(); cpQuality.pop(); }
-
-		const text = chars.join('');
-		if (text.length < 1) return;
-		if (isComplete) {
-			if (text !== this.lastERT) { this.lastERT = text; this.callback({ eRT: text, eRTCharStatus: cpQuality }); }
-		} else {
-			this.callback({ eRTPartial: text, eRTCharStatus: cpQuality });
-		}
-	}
-
-	/** Walk eRTBytes[0..rawLen), validate UTF-8, return per-codepoint chars+quality. */
-	private _ertDecodeUtf8(rawLen: number): { chars: string[]; cpQuality: number[] } {
-		const chars: string[] = [];
-		const cpQuality: number[] = [];
-		let i = 0;
-		while (i < rawLen) {
-			const b0 = this.eRTBytes[i];
-			let seqBytes: number;
-			if      ((b0 & 0x80) === 0x00) seqBytes = 1;
-			else if ((b0 & 0xe0) === 0xc0) seqBytes = 2;
-			else if ((b0 & 0xf0) === 0xe0) seqBytes = 3;
-			else if ((b0 & 0xf8) === 0xf0) seqBytes = 4;
-			else { chars.push('?'); cpQuality.push(this.eRTQuality[i]); i++; continue; }
-
-			if (i + seqBytes > rawLen) { chars.push('?'); cpQuality.push(2); i++; continue; }
-			let valid = true;
-			for (let j = 1; j < seqBytes; j++) {
-				if ((this.eRTBytes[i + j] & 0xc0) !== 0x80) { valid = false; break; }
-			}
-			if (!valid) { chars.push('?'); cpQuality.push(this.eRTQuality[i]); i++; continue; }
-			let worstQ = this.eRTQuality[i];
-			for (let j = 1; j < seqBytes; j++) if (this.eRTQuality[i + j] > worstQ) worstQ = this.eRTQuality[i + j];
-			chars.push(new TextDecoder('utf-8', { fatal: false }).decode(this.eRTBytes.slice(i, i + seqBytes)));
-			cpQuality.push(worstQ);
-			i += seqBytes;
-		}
-		return { chars, cpQuality };
-	}
-
-	// ── TMC: RDS-TMC (ODA AIDs 0x4D2C / 0xCD46 / 0xCD47) ────────
-	// Based on ISO 14819-1 §9.6 (single-group) and §9.7 (multi-group).
-	// x = block B bits [4:0], y = block C, z = block D.
-	// t = x[4]: 1=tuning info, 0=user message.
-	// f = x[3]: 1=single-group user message, 0=multi-group.
-	private decodeTMC(blockB: number, bv: boolean[]): void {
-		if (!bv[2] || !bv[3]) return;
-		const x = blockB & 0x1f;
-		const y = this.blocks[2];
-		const z = this.blocks[3];
-		const t = (x >> 4) & 1;  // tuning info bit
-		if (t) return;            // tuning info -- system management, no message to emit
-		const f = (x >> 3) & 1;  // single/multi flag
-
-		if (f) {
-			// Single-group user message (ISO 14819-1 §9.6.1)
-			// x[2:0] = duration code, y[15] = diversion, y[14] = direction,
-			// y[13:11] = extent, y[10:0] = event code, z = location code
-			const duration  = x & 0x7;
-			const diversion = (y >> 15) & 1;
-			const direction = (y >> 14) & 1;
-			const extent    = (y >> 11) & 0x7;
-			const event     = y & 0x7ff;
-			const location  = z;
-			this.callback({
-				tmcMessage: {
-					event, location,
-					direction: direction ? 'negative' : 'positive',
-					extent, duration, diversion: diversion === 1,
-					multi: false,
-				}
-			});
-		} else {
-			// Multi-group user message (ISO 14819-1 §9.7)
-			// x[2:0] = continuity index
-			const continuityIndex = x & 0x7;
-			if (continuityIndex !== this.tmcContinuity) {
-				// New message: reset parts
-				this.tmcContinuity = continuityIndex;
-				this.tmcParts = [null, null, null, null, null];
-			}
-			const isFirst = (y >> 15) & 1;
-			const sg      = (y >> 14) & 1;  // second group indicator
-			let groupNum: number;
-			let isLast: boolean;
-			if (isFirst) {
-				groupNum = 0;
-				isLast = false;
-			} else if (sg) {
-				const gsi = (y >> 12) & 0x3;
-				groupNum = 1;
-				isLast = gsi === 0;
-			} else {
-				const gsi = (y >> 12) & 0x3;
-				groupNum = 4 - gsi;
-				isLast = gsi === 0;
-			}
-			this.tmcParts[groupNum] = { y, z };
-			if (isLast && this.tmcParts[0]) {
-				// Decode from first group: direction y0[14], extent y0[13:11], event y0[10:0], location z0
-				const p0 = this.tmcParts[0];
-				const direction = (p0.y >> 14) & 1;
-				const extent    = (p0.y >> 11) & 0x7;
-				const event     = p0.y & 0x7ff;
-				const location  = p0.z;
-				// Duration from subsequent parts (label 0 in freeform fields, 3 bits)
-				// Without a full freeform decoder, default to 0
-				const duration = 0;
-				this.callback({
-					tmcMessage: {
-						event, location,
-						direction: direction ? 'negative' : 'positive',
-						extent, duration, diversion: false,
-						multi: true,
-					}
-				});
-				this.tmcParts = [null, null, null, null, null];
-			}
-		}
-	}
-
-	// ── RT+ tag extraction (IEC 62106-6 A.5.3) ──────────────────
-	// Called when RT A/B flag changes to invalidate tag positions
-	private clearRtPlus(): void {
-		if (this.rtPlusText1 || this.rtPlusText2) {
-			this.rtPlusText1 = ''; this.rtPlusText2 = '';
-			this.callback({ rtPlusItem1: undefined, rtPlusItem2: undefined });
-		}
-	}
-
-	private decodeRtPlus(b: number, c: number, d: number): void {
-		const toggle = (b >> 4) & 1; const running = (b >> 3) & 1;
-		const newItem = this.rtPlusToggle !== -1 && toggle !== this.rtPlusToggle;
-		const runningChanged = this.rtPlusRunning !== -1 && running !== this.rtPlusRunning;
-		this.rtPlusToggle = toggle; this.rtPlusRunning = running;
-		const tags = this._rtPlusDecodeTags(b, c, d, running, this.lastRt);
-		if (tags.t1 !== this.rtPlusText1 || tags.t2 !== this.rtPlusText2 || tags.type1 !== this.rtPlusTag1 || tags.type2 !== this.rtPlusTag2 || newItem || runningChanged) {
-			if (newItem) { this.rtPlusText1 = ''; this.rtPlusText2 = ''; this.rtPlusTag1 = 0; this.rtPlusTag2 = 0; }
-			this.rtPlusText1 = tags.t1; this.rtPlusText2 = tags.t2; this.rtPlusTag1 = tags.type1; this.rtPlusTag2 = tags.type2;
-			this.callback({ rtPlusRunning: running === 1, rtPlusToggle: toggle, rtPlusItem1: tags.t1 || undefined, rtPlusItem1Tag: tags.type1 || undefined, rtPlusItem1Name: tags.type1 > 0 ? tags.name1 : undefined, rtPlusItem2: tags.t2 || undefined, rtPlusItem2Tag: tags.type2 || undefined, rtPlusItem2Name: tags.type2 > 0 ? tags.name2 : undefined });
-		}
-	}
-
-	/** Decode RT+ tag positions and extract text from srcText. */
-	private _rtPlusDecodeTags(b: number, c: number, d: number, running: number, srcText: string) {
-		const type1 = ((b & 0x7) << 3) | (c >> 13);
-		const start1 = (c >> 7) & 0x3f; const len1 = ((c >> 1) & 0x3f) + 1;
-		const type2 = ((c & 1) << 5) | (d >> 11);
-		const start2 = (d >> 5) & 0x3f; const len2 = (d & 0x1f) + 1;
-		const ex = (s: number, l: number) => s < srcText.length ? srcText.slice(s, Math.min(s + l, srcText.length)).trimEnd() : '';
-		const t1 = type1 > 0 && running ? ex(start1, len1) : '';
-		const t2 = type2 > 0 && running ? ex(start2, len2) : '';
-		return { type1, type2, t1, t2, name1: RTPLUS_TYPES[type1] ?? `CT${type1}`, name2: RTPLUS_TYPES[type2] ?? `CT${type2}` };
-	}
-
-	// ── eRT+: RT+ tag extraction over eRT text (ODA AID 0x4BD8) ──
-	// Identical wire format to RT+ (IEC 62106-6 A.5.3) but fully independent state.
-	// cb bit from 3A config selects the text source: 0=RT, 1=eRT.
-	private decodeERtPlus(b: number, c: number, d: number): void {
-		const toggle = (b >> 4) & 1; const running = (b >> 3) & 1;
-		const newItem = this.eRTPlusToggle !== -1 && toggle !== this.eRTPlusToggle;
-		const runningChanged = this.eRTPlusRunning !== -1 && running !== this.eRTPlusRunning;
-		this.eRTPlusToggle = toggle; this.eRTPlusRunning = running;
-		const src = this.eRTPlusCb === 1 ? this.lastERT : this.lastRt;
-		const tags = this._rtPlusDecodeTags(b, c, d, running, src);
-		if (tags.t1 !== this.eRTPlusText1 || tags.t2 !== this.eRTPlusText2 || tags.type1 !== this.eRTPlusTag1 || tags.type2 !== this.eRTPlusTag2 || newItem || runningChanged) {
-			if (newItem) { this.eRTPlusText1 = ''; this.eRTPlusText2 = ''; this.eRTPlusTag1 = 0; this.eRTPlusTag2 = 0; }
-			this.eRTPlusText1 = tags.t1; this.eRTPlusText2 = tags.t2; this.eRTPlusTag1 = tags.type1; this.eRTPlusTag2 = tags.type2;
-			this.callback({ eRTPlusRunning: running === 1, eRTPlusToggle: toggle, eRTPlusItem1: tags.t1 || undefined, eRTPlusItem1Tag: tags.type1 || undefined, eRTPlusItem1Name: tags.type1 > 0 ? tags.name1 : undefined, eRTPlusItem2: tags.t2 || undefined, eRTPlusItem2Tag: tags.type2 || undefined, eRTPlusItem2Name: tags.type2 > 0 ? tags.name2 : undefined });
-		}
-	}
-
-	private buildPS(): string | null {
-		if (this.psChars.some(c => c === null)) return null;
-		return (this.psChars as string[]).join('');
-	}
-
-	private buildRT(): string | null {
-		let s = '';
-		for (const char of this.rtChars) {
-			if (char === null || char === '\r') break;
-			s += char;
-		}
-		return s.trimEnd() || null;
-	}
-
-	/** Build char status array for the received prefix of an RT/PS. */
-	private buildStatus(chars: Array<string | null>, status: number[]): number[] {
-		const result: number[] = [];
-		for (let i = 0; i < chars.length; i++) {
-			if (chars[i] === null || chars[i] === '\r') break;
-			result.push(status[i]);
-		}
-		return result;
-	}
-
 	reset(): void {
-		this.synced = false; this.blockIndex = 0; this.goodBlocks = 0;
-		this.blockErrors = 0; this.nbUnsync = 0; this.blockValid.fill(false); this.blockCorrected.fill(false);
-		this.bitCount = 0; this.shiftReg = 0;
 		this.pi = 0; this.pty = -1; this.tp = false; this.ta = false;
 		this.psChars.fill(null); this.psStatus.fill(0);
 		this.rtChars.fill(null); this.rtStatus.fill(0);
@@ -1324,29 +738,9 @@ export class RDSDecoder {
 		this.ecc = -1; this.lic = -1;
 		this.afList = []; this.afCount = 0; this.afLastCount = -1;
 		this.odaMap.clear(); this.eonMap.clear();
-		this.rtPlusGroup = -1; this.rtPlusText1 = ''; this.rtPlusText2 = '';
-		this.phasorRe = 1; this.phasorIm = 0; this.phasorCount = 0;
-		this.pilotMixI = 0; this.pilotMixQ = 0; this.pilotBpf.reset();
-		this.clockPhase = 0; this.prevBpskI = 0; this.prevBpskQ = 0;
-		this.clockPowerI = 0; this.clockPowerQ = 0; this.clockUsesQ = false;
-		this.symbolIndex = 0; this.pairEnergy.fill(0); this.pairParity = -1;
-		this.prevHalfI = 0; this.prevHalfQ = 0; this.prevSymI = 0; this.prevSymQ = 0;
-		// Reset BER and pilot but keep them across reset (station re-tune)
-		this.berHistory.fill(1); this.berHead = 0; this.berSum = this.BER_WINDOW;
-		this.berCorrectedBlocks = 0; this.berTotalBlocks = 0;
-		this.pilotPower = 0;
-		for (const bq of this.bqI) bq.reset();
-		for (const bq of this.bqQ) bq.reset();
+		this.oda.reset();
+		this.demod.reset();
 	}
 
-	getStatus(): RdsStatus {
-		return {
-			synced: this.synced,
-			ber: this.berTotalBlocks === 0 ? 1 : this.berSum / this.BER_WINDOW,
-			goodBlocks: this.goodBlocks,
-			correctedBlocks: this.berCorrectedBlocks,
-			totalBlocks: this.berTotalBlocks,
-			pilotLevel: Math.sqrt(this.pilotPower),
-		};
-	}
+	getStatus(): RdsStatus { return this.demod.getStatus(); }
 }

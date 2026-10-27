@@ -14,10 +14,25 @@ export type RdsStations = Record<
 		tp: boolean; ta: boolean; freq: string;
 		ptyn: string; ct: string; ctUtcOffset: number | null;
 		ecc: number; countryName: string; lic: number; languageName: string;
-		af: number[]; hasTmc: boolean;
-		rtPlusItem1: string; rtPlusItem1Tag: number;
-		rtPlusItem2: string; rtPlusItem2Tag: number;
+		af: number[]; afMethod: string; hasTmc: boolean; tmcId: number;
+		rtPlusItem1: string; rtPlusItem1Tag: number; rtPlusItem1Name: string;
+		rtPlusItem2: string; rtPlusItem2Tag: number; rtPlusItem2Name: string;
+		rtPlusRunning: boolean;
 		psCharStatus: number[]; rtCharStatus: number[];
+		// Group 1A extras
+		la: boolean; opc: number; rpc: number; rpcGroupDesig: number; rpcBattSync: number;
+		pagingOpc: number; pagingPac: number; ewsChannel: number; broadcasterData: number;
+		pinDay: number; pinHour: number; pinMinute: number;
+		// PI breakdown
+		piCc: number; piCoverage: number; piCoverageName: string; piRef: number; piCallsign: string | null;
+		// Group 0/15B MS + DI
+		ms: boolean | null; di: number; diStereo: boolean; diArtHead: boolean; diCompressed: boolean; diDynPty: boolean;
+		// eRT (Enhanced RadioText)
+		eRT: string; eRTPartial: string; eRTCharStatus: number[];
+		// eRT+ (ODA AID 0x4BD8) -- independent from RT+
+		eRTPlusItem1: string; eRTPlusItem1Tag: number; eRTPlusItem1Name: string;
+		eRTPlusItem2: string; eRTPlusItem2Tag: number; eRTPlusItem2Name: string;
+		eRTPlusRunning: boolean;
 		/** Map of PI -> EON network entry for display in station card */
 		eonNetworks: Record<string, {
 			pi: string; ps?: string; tp: boolean; ta: boolean;

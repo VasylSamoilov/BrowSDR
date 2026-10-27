@@ -201,3 +201,15 @@ export interface RdsStatus {
 	totalBlocks: number;
 	pilotLevel: number;
 }
+
+export interface RdsOdaCtx {
+	readonly blocks: number[];
+	readonly blockValid: boolean[];
+	blockQuality(idx: number): number;
+	lastRt: string;
+	lastERT: string;
+	callback(msg: RDSMessage): void;
+}
+
+/** Callback type for RDSDemodulator when a complete 4-block group is assembled. */
+export type OnGroupCallback = (blocks: number[], blockValid: boolean[], blockCorrected: boolean[]) => void;
