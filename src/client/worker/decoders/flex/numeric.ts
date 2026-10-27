@@ -94,6 +94,7 @@ export function numberedNumericMessage(
 	};
 }
 
+
 // Numeric K-checksum field positions (ARIB 3.10.1.1.1): K3-K0 in the vector
 // word bits 17-20, K5K4 in body word 0 bits 0-1.
 const NUM_K30_SHIFT = 17;

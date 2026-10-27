@@ -163,16 +163,7 @@ function hhmmToMin(h: number, m: number): number {
  * then writes the confirmed time into FlexNetInfo. Rejects readings failing
  * the FIW cross-check (resets the streak); resets on a non-wrap backward jump.
  */
-export function voteTime(
-	v: FlexTimeVote,
-	net: FlexNetInfo,
-	hour: number,
-	min: number,
-	sec: number,
-	cycle: number,
-	frame: number,
-	frameMono: number,
-): boolean {
+export function voteTime(v: FlexTimeVote, net: FlexNetInfo, hour: number, min: number, sec: number, cycle: number, frame: number, frameMono: number): boolean {
 	if (!fiwMinuteOk(min, cycle)) {
 		v.timeCount = 0;
 		return false;
@@ -349,6 +340,7 @@ function expireFlexTime(v: FlexTimeVote, net: FlexNetInfo, frameMono: number): v
 	}
 }
 
+
 /**
  * Build the calculated over-the-air timestamp from the confirmed network clock
  * (ARIB 3.7.2), matching multimon-ng's OTA format:
@@ -378,10 +370,7 @@ export function formatFlexTimeOnly(net: FlexNetInfo, frame: number): string | nu
 	let outMin = Math.floor(baseSec / 60);
 	const outSec = baseSec - outMin * 60;
 	let outHour = c.hour;
-	if (outMin >= 60) {
-		outMin -= 60;
-		outHour = (outHour + 1) % 24;
-	}
+	if (outMin >= 60) { outMin -= 60; outHour = (outHour + 1) % 24; }
 	return `${pad2(outHour)}:${pad2(outMin)}:${pad2(Math.trunc(outSec))}`;
 }
 

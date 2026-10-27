@@ -261,11 +261,7 @@ export const remoteMethods = {
 
 		if (handlePacketTelemetry.call(this, cmd)) return;
 		if (PAGER_COMMANDS.has(cmd.type)) {
-			handlePagerCommand.call(
-				this,
-				cmd as Extract<ReceiverCommand, { type: 'pocsag' | 'pocsag_status' | 'gsc' | 'gsc_status' | 'flex' | 'flex_status' }>,
-				clientId,
-			);
+			handlePagerCommand.call(this, cmd as Extract<ReceiverCommand, { type: 'pocsag' | 'pocsag_status' | 'gsc' | 'gsc_status' | 'flex' | 'flex_status' }>, clientId);
 			return;
 		}
 		switch (cmd.type) {

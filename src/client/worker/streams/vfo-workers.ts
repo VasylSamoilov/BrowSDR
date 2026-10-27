@@ -137,10 +137,7 @@ export function routeLocalWorkerMessage(
 	radiosondeCallback: RadiosondeCallback | null = null,
 ) {
 	if (routePacketMessage(backend, worker, msg, bleCallback, aisCallback, adsbCallback, acarsCallback, radiosondeCallback)) return;
-	if (msg.type === 'rtl433_event' || msg.type === 'rtl433_status') {
-		routeSensorMessage(backend, worker, msg, rtl433Callback);
-		return;
-	}
+	if (msg.type === 'rtl433_event' || msg.type === 'rtl433_status') { routeSensorMessage(backend, worker, msg, rtl433Callback); return; }
 	if (msg.type === 'audio') {
 		const currentIndex = backend.dspWorkers!.indexOf(worker);
 		if (currentIndex === -1) return;

@@ -23,7 +23,7 @@ function golaySyndromeCalc(codeword: number): number {
 	if (syndrome >= GOL_X11) {
 		while ((syndrome & GOL_MASK12) >>> 0) {
 			while (!(aux & syndrome)) aux = aux >>> 1;
-			syndrome = (syndrome ^ (Math.floor(aux / GOL_X11) * GEN_GOL)) >>> 0;
+			syndrome = (syndrome ^ Math.floor(aux / GOL_X11) * GEN_GOL) >>> 0;
 		}
 	}
 	return syndrome >>> 0;
@@ -35,7 +35,7 @@ function bchSyndromeCalc(codeword: number): number {
 	if (syndrome >= BCH_X8) {
 		while (syndrome & BCH_MASK7) {
 			while (!(aux & syndrome)) aux = aux >>> 1;
-			syndrome = (syndrome ^ (Math.floor(aux / BCH_X8) * GEN_BCH)) & 0xffff;
+			syndrome = (syndrome ^ Math.floor(aux / BCH_X8) * GEN_BCH) & 0xffff;
 		}
 	}
 	return syndrome & 0xff;
@@ -105,7 +105,7 @@ export function calcBch(data: number): number {
 	if (syndrome >= BCH_X8) {
 		while (syndrome & BCH_MASK7) {
 			while (!(aux & syndrome)) aux = aux >>> 1;
-			syndrome = (syndrome ^ (Math.floor(aux / BCH_X8) * GEN_BCH)) & 0xffff;
+			syndrome = (syndrome ^ Math.floor(aux / BCH_X8) * GEN_BCH) & 0xffff;
 		}
 	}
 	return ((data & 0x7f) | (syndrome << 7)) & 0xffff;

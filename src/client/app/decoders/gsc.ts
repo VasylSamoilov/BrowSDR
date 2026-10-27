@@ -26,7 +26,7 @@ export const gscMethods = {
 		if (!this.gscStatus) this.gscStatus = [];
 		// Carry last-known BER forward so the UI can dim it during hunt.
 		const prev = this.gscStatus[vfoIndex];
-		const lastBer = status.ber != null ? status.ber : (prev?.lastBer ?? null);
+		const lastBer = status.ber != null ? status.ber : (prev)?.lastBer ?? null;
 		this.gscStatus[vfoIndex] = Object.assign(status, { lastBer });
 	},
 	_onGscMessage(this: AppInstance, vfoIndex: number, freqMhz: number, msg: GSCMessage) {

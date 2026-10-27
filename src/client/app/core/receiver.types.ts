@@ -220,21 +220,9 @@ export interface ReceiverMethods {
 	_applyRdsRtPlusFields(stn: AppInstance['rds']['stations'][number], msg: RDSMessage, time: string, freq: string, vfoIndex: number): void;
 	_rtPlusLogValue(n1: string | undefined, t1: string | undefined, n2: string | undefined, t2: string | undefined): string | null;
 	_applyRdsErtFields(stn: AppInstance['rds']['stations'][number], msg: RDSMessage, time: string, freq: string, vfoIndex: number): void;
-	_applyRdsEonPagingFields(
-		stn: AppInstance['rds']['stations'][number],
-		msg: RDSMessage,
-		time: string,
-		freq: string,
-		vfoIndex: number,
-	): void;
+	_applyRdsEonPagingFields(stn: AppInstance['rds']['stations'][number], msg: RDSMessage, time: string, freq: string, vfoIndex: number): void;
 	_applyRdsEonNetwork(stn: AppInstance['rds']['stations'][number], eon: NonNullable<RDSMessage['eon']>): void;
-	_applyRdsTmcMessage(
-		time: string,
-		freq: string,
-		vfoIndex: number,
-		tm: NonNullable<RDSMessage['tmcMessage']>,
-		srcGroup: string | undefined,
-	): void;
+	_applyRdsTmcMessage(time: string, freq: string, vfoIndex: number, tm: NonNullable<RDSMessage['tmcMessage']>, srcGroup: string | undefined): void;
 	setRdsRegion(vfoIndex: number, region: string): void;
 	rdsFlagTitle(flag: string, value: boolean | null, a?: number, b?: number): string;
 	toggleDisplayLock(): void;

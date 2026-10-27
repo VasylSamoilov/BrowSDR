@@ -367,14 +367,10 @@ export class _POCSAGSingleBaud {
 			// Inside a batch: accumulate 32-bit codewords by frame count.
 			this.currentCw = ((this.currentCw << 1) | bit) >>> 0;
 			if (POCSAG_DEMOD_DIAG)
-				console.debug(
-					`[POCSAG ${this.baudRate}bd BIT] bit=${bit} cwBitCnt=${this.cwBitCnt} batchRemain=${this.batchRemain} shiftReg=0x${this.shiftReg.toString(16).padStart(8, '0')} currentCw=0x${this.currentCw.toString(16).padStart(8, '0')}`,
-				);
+				console.debug(`[POCSAG ${this.baudRate}bd BIT] bit=${bit} cwBitCnt=${this.cwBitCnt} batchRemain=${this.batchRemain} shiftReg=0x${this.shiftReg.toString(16).padStart(8,'0')} currentCw=0x${this.currentCw.toString(16).padStart(8,'0')}`);
 			if (++this.cwBitCnt < 32) return;
 			if (POCSAG_DEMOD_DIAG)
-				console.debug(
-					`[POCSAG ${this.baudRate}bd CW_COMPLETE] batchCwIdx=${this.batchCwIdx} batchRemain=${this.batchRemain} currentCw=0x${this.currentCw.toString(16).padStart(8, '0')} shiftReg=0x${this.shiftReg.toString(16).padStart(8, '0')}`,
-				);
+				console.debug(`[POCSAG ${this.baudRate}bd CW_COMPLETE] batchCwIdx=${this.batchCwIdx} batchRemain=${this.batchRemain} currentCw=0x${this.currentCw.toString(16).padStart(8,'0')} shiftReg=0x${this.shiftReg.toString(16).padStart(8,'0')}`);
 			this.cwBitCnt = 0;
 			const raw = this.currentCw >>> 0;
 			this.currentCw = 0;
@@ -393,9 +389,7 @@ export class _POCSAGSingleBaud {
 				// a slipped bit in shiftReg that acts as the FSC's first bit,
 				// causing resyncBits=31 and misframing the entire next batch.
 				if (POCSAG_DEMOD_DIAG)
-					console.info(
-						`[POCSAG ${this.baudRate}bd BATCH_DONE] shiftReg_before=0x${this.shiftReg.toString(16).padStart(8, '0')} → resetting to 0`,
-					);
+					console.info(`[POCSAG ${this.baudRate}bd BATCH_DONE] shiftReg_before=0x${this.shiftReg.toString(16).padStart(8,'0')} → resetting to 0`);
 				this.shiftReg = 0;
 				this.shiftRegHi = 0;
 			}
@@ -404,9 +398,7 @@ export class _POCSAGSingleBaud {
 
 		// Between batches: search bit-by-bit for the next FSC within the window.
 		if (POCSAG_DEMOD_DIAG)
-			console.debug(
-				`[POCSAG ${this.baudRate}bd FSC_SEARCH] resyncBits=${this.resyncBits + 1} shiftReg=0x${(this.shiftReg >>> 0).toString(16).padStart(8, '0')}`,
-			);
+			console.debug(`[POCSAG ${this.baudRate}bd FSC_SEARCH] resyncBits=${this.resyncBits + 1} shiftReg=0x${((this.shiftReg)>>>0).toString(16).padStart(8,'0')}`);
 		this._fscSearch();
 	}
 
@@ -429,7 +421,7 @@ export class _POCSAGSingleBaud {
 		if (_pocsagHamming(w, curTarget) <= _POCSAGSingleBaud.SYNC_TOLERANCE) {
 			const trial = (this.inverted ? ~w : w) >>> 0;
 			const r = this._eccCorrect(trial);
-			if (r.errors < 3 && r.cw >>> 0 === _POCSAGSingleBaud.SYNC_WORD) {
+			if (r.errors < 3 && (r.cw >>> 0) === _POCSAGSingleBaud.SYNC_WORD) {
 				if (POCSAG_DEMOD_DIAG) pocsagDiagRelock(this, w, _pocsagHamming(w, curTarget));
 				this._onSync();
 				return;
@@ -443,7 +435,7 @@ export class _POCSAGSingleBaud {
 		if (_pocsagHamming(w, othTarget) <= _POCSAGSingleBaud.SYNC_TOLERANCE) {
 			const trial = (this.inverted ? w : ~w) >>> 0;
 			const r = this._eccCorrect(trial);
-			if (r.errors < 3 && r.cw >>> 0 === _POCSAGSingleBaud.SYNC_WORD) {
+			if (r.errors < 3 && (r.cw >>> 0) === _POCSAGSingleBaud.SYNC_WORD) {
 				this.inverted = !this.inverted;
 				this._onSync();
 				return;

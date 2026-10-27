@@ -156,7 +156,7 @@ function createDecoderAndBookmarkState() {
 		},
 		// Per-VFO POCSAG link status (sync/baud/polarity/BER). Protocol-specific
 		// status strips stay per-protocol; this one is POCSAG's.
-		pocsagStatus: [] as Array<POCSAGStatus | null>, // Per-VFO GSC link status (sync/baud/BER).
+		pocsagStatus: [] as Array<POCSAGStatus | null>,		// Per-VFO GSC link status (sync/baud/BER).
 		gscStatus: [] as Array<GSCStatus | null>,
 		// Per-VFO FLEX link status (lock/stage/mode/cycle/frame/BER/network).
 		flexStatus: [] as Array<FlexStatus | null>,

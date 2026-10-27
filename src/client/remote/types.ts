@@ -7,16 +7,7 @@ import type { DeviceCapabilities } from '@/radio/types';
 import type { RadioState } from '@/app/core/types';
 import type { VfoParams, PerfReport } from '@/worker/runtime/types';
 import type { AdsbMessage } from '@/worker/decoders/adsb/types';
-import type {
-	POCSAGMessage,
-	POCSAGStatus,
-	RDSMessage,
-	Rtl433Message,
-	GSCMessage,
-	GSCStatus,
-	FlexMessage,
-	FlexStatus,
-} from '@/worker/decoders/types';
+import type { POCSAGMessage, POCSAGStatus, RDSMessage, Rtl433Message, GSCMessage, GSCStatus, FlexMessage, FlexStatus } from '@/worker/decoders/types';
 
 export interface ReceiverInventory {
 	id: string;
