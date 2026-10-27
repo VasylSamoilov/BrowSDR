@@ -352,9 +352,6 @@ export class RDSDecoder {
 	// Symbol timing recovery
 	private samplesPerBit: number;
 	private clockPhase = 0;
-	private clockPowerI = 0;
-	private clockPowerQ = 0;
-	private clockUsesQ = false;
 	private symbolIndex = 0;
 	private pairEnergy = [0, 0];
 	private pairParity = -1;
@@ -510,22 +507,17 @@ export class RDSDecoder {
 			const err = power > 1e-12 ? (filtI * filtQ) / this.scAgc : 0;
 			this.scPllFilter += this.scPllAlpha * (err - this.scPllFilter);
 
-			// Update PLL: correct phase and frequency
+			// Update PLL: correct phase and frequency (osmocom: phase -= beta*err, freq -= 0.5*beta*err)
 			this.scPhase -= this.scPllBeta * this.scPllFilter;
-			const freqCorr = 0.5 * this.scPllBeta * this.scPllFilter;
-			this.scFreq -= freqCorr * (this.sampleRate / (2 * Math.PI));
-			// Clamp to 57 kHz ± 12 Hz
-			if (this.scFreq > 57012) this.scFreq = 57012;
-			if (this.scFreq < 56988) this.scFreq = 56988;
-			this.scStep = (2 * Math.PI * this.scFreq) / this.sampleRate;
+			this.scStep  -= 0.5 * this.scPllBeta * this.scPllFilter;
+			// Clamp step to 57 kHz ± 12 Hz in rad/sample
+			const minStep = (2 * Math.PI * 56988) / this.sampleRate;
+			const maxStep = (2 * Math.PI * 57012) / this.sampleRate;
+			if (this.scStep > maxStep) this.scStep = maxStep;
+			if (this.scStep < minStep) this.scStep = minStep;
 
-			// Pick the stronger quadrature for clock recovery and integration
-			this.clockPowerI += 0.001 * (filtI * filtI - this.clockPowerI);
-			this.clockPowerQ += 0.001 * (filtQ * filtQ - this.clockPowerQ);
-			if (this.clockPowerQ > this.clockPowerI * 2) this.clockUsesQ = true;
-			else if (this.clockPowerI > this.clockPowerQ * 2) this.clockUsesQ = false;
-
-			const bb = this.clockUsesQ ? filtQ : filtI;
+			// When Costas PLL is locked, data is on the I axis
+			const bb = filtI;
 			const symbolPeriod = this.samplesPerBit / 2;
 
 			// Bit clock oscillator (free-running at 1187.5 Hz, independent of subcarrier PLL)
@@ -1249,12 +1241,11 @@ export class RDSDecoder {
 		this.afList = []; this.afCount = 0; this.afLastCount = -1;
 		this.odaMap.clear(); this.eonMap.clear();
 		this.rtPlusGroup = -1; this.rtPlusText1 = ''; this.rtPlusText2 = '';
-		this.scPhase = 0; this.scFreq = 57000; this.scStep = (2 * Math.PI * 57000) / this.sampleRate;
+		this.scPhase = 0; this.scStep = (2 * Math.PI * 57000) / this.sampleRate;
 		this.scAgc = 1e-4; this.scPllFilter = 0;
 		this.pilotMixI = 0; this.pilotPower = 0; this.pilotBpf.reset();
 		this.clockPhase = 0; this.prevBb = 0;
 		this.integrator = 0; this.prevIntegral = 0; this.prevSymSign = 0; this.prevLoClock = 1;
-		this.clockPowerI = 0; this.clockPowerQ = 0; this.clockUsesQ = false;
 		this.symbolIndex = 0; this.pairEnergy.fill(0); this.pairParity = -1;
 		this.nbUnsync = 0;
 		// Reset BER and pilot but keep them across reset (station re-tune)
