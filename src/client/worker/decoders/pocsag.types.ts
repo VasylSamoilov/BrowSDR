@@ -62,5 +62,3 @@ export interface POCSAGStatus {
 	/** Last known BER carried forward for display during hunt. */
 	lastBer?: number | null;
 }
-
-

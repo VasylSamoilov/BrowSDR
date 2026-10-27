@@ -4,7 +4,6 @@ import type { CharsetKey } from './charsets';
 import { pocsagCodepage, POCSAG_DEFAULT_CHARSET } from './charsets';
 import { FskBitSlicer, BerWindow } from './fsk-frontend';
 
-
 /*
 Copyright (c) 2026, jLynx <https://github.com/jLynx>
 
