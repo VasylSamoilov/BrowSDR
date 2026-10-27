@@ -172,6 +172,15 @@ export interface RDSMessage {
 	rtPlusItem2?: string;       // Tag 2 text extracted from RT
 	rtPlusItem2Tag?: number;    // Tag 2 content type code
 	rtPlusItem2Name?: string;   // Tag 2 content type name
+	// eRT+ (AID 0x4BD8): same tag format, independent state, source = eRT or RT per cb bit
+	eRTPlusRunning?: boolean;
+	eRTPlusToggle?: number;
+	eRTPlusItem1?: string;
+	eRTPlusItem1Tag?: number;
+	eRTPlusItem1Name?: string;
+	eRTPlusItem2?: string;
+	eRTPlusItem2Tag?: number;
+	eRTPlusItem2Name?: string;
 	// Group 0A AF list
 	af?: number[];          // Alternative frequencies in kHz
 	// Group 7A Radio Paging (EN 50067 Annex M) — gated on rpcGroupDesig > 0

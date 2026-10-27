@@ -441,9 +441,15 @@ export class RDSDecoder {
 	private rtPlusToggle = -1;   // last seen toggle bit (-1=unknown)
 	private rtPlusRunning = -1;  // last seen item_running bit
 
-	// eRT+ (ODA AID 0x4BD8): RT+ operating on eRT text
+	// eRT+ (ODA AID 0x4BD8): RT+ operating on eRT text -- fully separate from RT+
 	private eRTPlusGroup = -1;
-	private eRTPlusCb = 0;       // cb bit from 3A config: 0=RT source, 1=eRT source
+	private eRTPlusCb = 0;        // cb bit from 3A: 0=RT source, 1=eRT source
+	private eRTPlusText1 = '';
+	private eRTPlusText2 = '';
+	private eRTPlusTag1 = 0;
+	private eRTPlusTag2 = 0;
+	private eRTPlusToggle = -1;
+	private eRTPlusRunning = -1;
 
 	// TMC (ODA AIDs 0x4D2C / 0xCD46 / 0xCD47)
 	private tmcGroup = -1;
@@ -1463,9 +1469,9 @@ export class RDSDecoder {
 			this.callback({ odaData: { group: groupNum, version, b: blockB & 0x1f, c: this.blocks[2], d: this.blocks[3] } });
 		// RT+ decode when this is the group registered for it
 		if (key === this.rtPlusGroup && bv[1] && bv[2] && bv[3])
-			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3], this.lastRt);
+			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3]);
 		if (key === this.eRTPlusGroup && bv[1] && bv[2] && bv[3])
-			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3], this.eRTPlusCb === 1 ? this.lastERT : this.lastRt);
+			this.decodeERtPlus(blockB, this.blocks[2], this.blocks[3]);
 		if (key === this.eRTGroup && bv[1])
 			this.decodeERT(blockB, bv);
 		if (key === this.tmcGroup && bv[1])
@@ -1680,7 +1686,7 @@ export class RDSDecoder {
 		}
 	}
 
-	private decodeRtPlus(b: number, c: number, d: number, srcText = this.lastRt): void {
+	private decodeRtPlus(b: number, c: number, d: number): void {
 		// Block B: bit 4 = item_toggle, bit 3 = item_running, bits [2:0] = tag1 CT high
 		const toggle  = (b >> 4) & 1;
 		const running = (b >> 3) & 1;
@@ -1703,9 +1709,9 @@ export class RDSDecoder {
 		const tag2Start = (d >> 5) & 0x3f;
 		const tag2Len   = (d & 0x1f) + 1;  // stored as length-1
 
-		// Use eRT text as source when this is an eRT+ group (cb=1 from 3A config)
+		const rt = this.lastRt;
 		const extract = (s: number, l: number) =>
-			s < srcText.length ? srcText.slice(s, Math.min(s + l, srcText.length)).trimEnd() : '';
+			s < rt.length ? rt.slice(s, Math.min(s + l, rt.length)).trimEnd() : '';
 
 		// type=0 (dummy_class) means no tag; only extract when item is running
 		const t1 = tag1Type > 0 && running ? extract(tag1Start, tag1Len) : '';
@@ -1735,6 +1741,57 @@ export class RDSDecoder {
 				rtPlusItem2: t2 || undefined,
 				rtPlusItem2Tag: tag2Type || undefined,
 				rtPlusItem2Name: tag2Type > 0 ? tag2Name : undefined,
+			});
+		}
+	}
+
+	// ── eRT+: RT+ tag extraction over eRT text (ODA AID 0x4BD8) ──
+	// Identical wire format to RT+ (IEC 62106-6 A.5.3) but fully independent state.
+	// cb bit from 3A config selects the text source: 0=RT, 1=eRT.
+	private decodeERtPlus(b: number, c: number, d: number): void {
+		const toggle  = (b >> 4) & 1;
+		const running = (b >> 3) & 1;
+
+		const newItem = this.eRTPlusToggle !== -1 && toggle !== this.eRTPlusToggle;
+		const runningChanged = this.eRTPlusRunning !== -1 && running !== this.eRTPlusRunning;
+		this.eRTPlusToggle = toggle;
+		this.eRTPlusRunning = running;
+
+		const tag1Type  = ((b & 0x7) << 3) | (c >> 13);
+		const tag1Start = (c >> 7) & 0x3f;
+		const tag1Len   = ((c >> 1) & 0x3f) + 1;
+		const tag2Type  = ((c & 1) << 5) | (d >> 11);
+		const tag2Start = (d >> 5) & 0x3f;
+		const tag2Len   = (d & 0x1f) + 1;
+
+		// cb=1 → extract from eRT; cb=0 → extract from RT
+		const src = this.eRTPlusCb === 1 ? this.lastERT : this.lastRt;
+		const extract = (s: number, l: number) =>
+			s < src.length ? src.slice(s, Math.min(s + l, src.length)).trimEnd() : '';
+
+		const t1 = tag1Type > 0 && running ? extract(tag1Start, tag1Len) : '';
+		const t2 = tag2Type > 0 && running ? extract(tag2Start, tag2Len) : '';
+
+		const tag1Name = RTPLUS_TYPES[tag1Type] ?? `CT${tag1Type}`;
+		const tag2Name = RTPLUS_TYPES[tag2Type] ?? `CT${tag2Type}`;
+
+		const changed = t1 !== this.eRTPlusText1 || t2 !== this.eRTPlusText2
+			|| tag1Type !== this.eRTPlusTag1 || tag2Type !== this.eRTPlusTag2
+			|| newItem || runningChanged;
+
+		if (changed) {
+			if (newItem) { this.eRTPlusText1 = ''; this.eRTPlusText2 = ''; this.eRTPlusTag1 = 0; this.eRTPlusTag2 = 0; }
+			this.eRTPlusText1 = t1; this.eRTPlusText2 = t2;
+			this.eRTPlusTag1 = tag1Type; this.eRTPlusTag2 = tag2Type;
+			this.callback({
+				eRTPlusRunning: running === 1,
+				eRTPlusToggle: toggle,
+				eRTPlusItem1: t1 || undefined,
+				eRTPlusItem1Tag: tag1Type || undefined,
+				eRTPlusItem1Name: tag1Type > 0 ? tag1Name : undefined,
+				eRTPlusItem2: t2 || undefined,
+				eRTPlusItem2Tag: tag2Type || undefined,
+				eRTPlusItem2Name: tag2Type > 0 ? tag2Name : undefined,
 			});
 		}
 	}

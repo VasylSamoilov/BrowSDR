@@ -18,6 +18,10 @@ const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false,
 	eRT: '' as string,
 	eRTPartial: '' as string,
 	eRTCharStatus: [] as number[],
+	// eRT+ (ODA AID 0x4BD8) -- independent from RT+
+	eRTPlusItem1: '', eRTPlusItem1Tag: 0, eRTPlusItem1Name: '',
+	eRTPlusItem2: '', eRTPlusItem2Tag: 0, eRTPlusItem2Name: '',
+	eRTPlusRunning: false,
 	// EON cross-referenced networks
 	eonNetworks: {} as Record<string, { pi: string; ps?: string; tp: boolean; ta: boolean; af?: number[]; mappedFreqs?: Array<{tuned: number; other: number}>; ptyOn?: number; pinDay?: number; pinHour?: number; pinMinute?: number }>,
 };
@@ -138,6 +142,21 @@ export const rdsMethods = {
 				const t2 = msg.rtPlusItem2Name ? `[${msg.rtPlusItem2Name}] ${msg.rtPlusItem2}` : msg.rtPlusItem2 || '';
 				const val = [t1, t2].filter(Boolean).join('  ');
 				this.rds.log.push({ time, field: 'RT+', value: val, freq, vfoIndex, group: msg.srcGroup });
+			}
+		}
+		if (msg.eRTPlusItem1 !== undefined) {
+			stn.eRTPlusItem1     = msg.eRTPlusItem1 || '';
+			stn.eRTPlusItem1Tag  = msg.eRTPlusItem1Tag || 0;
+			stn.eRTPlusItem1Name = msg.eRTPlusItem1Name || '';
+			stn.eRTPlusItem2     = msg.eRTPlusItem2 || '';
+			stn.eRTPlusItem2Tag  = msg.eRTPlusItem2Tag || 0;
+			stn.eRTPlusItem2Name = msg.eRTPlusItem2Name || '';
+			if (msg.eRTPlusRunning !== undefined) stn.eRTPlusRunning = msg.eRTPlusRunning;
+			if (msg.eRTPlusItem1 || msg.eRTPlusItem2) {
+				const t1 = msg.eRTPlusItem1Name ? `[${msg.eRTPlusItem1Name}] ${msg.eRTPlusItem1}` : msg.eRTPlusItem1 || '';
+				const t2 = msg.eRTPlusItem2Name ? `[${msg.eRTPlusItem2Name}] ${msg.eRTPlusItem2}` : msg.eRTPlusItem2 || '';
+				const val = [t1, t2].filter(Boolean).join('  ');
+				this.rds.log.push({ time, field: 'eRT+', value: val, freq, vfoIndex, group: msg.srcGroup });
 			}
 		}
 		if (msg.eon !== undefined) {
