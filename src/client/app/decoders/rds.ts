@@ -188,7 +188,7 @@ export const rdsMethods = {
 		}
 	},
 	/** Build RT+/eRT+ log value string from tag names and text. Returns null if nothing to log. */
-	_rtPlusLogValue(_this: unknown, n1: string | undefined, t1: string | undefined, n2: string | undefined, t2: string | undefined): string | null {
+	_rtPlusLogValue(n1: string | undefined, t1: string | undefined, n2: string | undefined, t2: string | undefined): string | null {
 		if (!t1 && !t2) return null;
 		const s1 = n1 ? `[${n1}] ${t1 ?? ''}` : t1 ?? '';
 		const s2 = n2 ? `[${n2}] ${t2 ?? ''}` : t2 ?? '';
@@ -225,6 +225,26 @@ export const rdsMethods = {
 		this.pager.panelOpen = true;
 	},
 	/** Region change: update decoder AND auto-set de-emphasis (NA→75µs, EU→50µs). */
+	rdsFlagTitle(flag: string, value: boolean | null, a?: number, b?: number): string {
+		const nl = '\n';
+		if (flag === 'tp' || flag === 'ta') return this._rdsTrafficFlagTitle(flag, value, nl);
+		if (flag === 'la') return 'LA - Linkage Actuator (ACTIVE)' + nl + 'This transmitter is temporarily part of an extended service (e.g. a split national network merged).' + nl + 'Radio behaviour: treats all transmitters in this Linkage Set as the same programme; AF retuning works across them.';
+		if (flag === 'tmc') return 'TMC - Traffic Message Channel' + (a !== undefined && a >= 0 ? ' (ID 0x' + a.toString(16).toUpperCase() + ')' : '') + nl + 'Silent digital traffic data on this station (ISO 14819 ALERT-C).' + nl + 'Navigation systems decode incidents, congestion and roadworks in the background without interrupting audio, and reroute automatically.';
+		if (flag === 'ews') return 'EWS - Emergency Warning System (channel ' + (a ?? '') + ')' + nl + 'Civil emergency broadcast infrastructure.' + nl + 'Radio behaviour: on receiving an EWS message, immediately unmutes, raises volume to a preset level, and displays the warning regardless of what the listener is doing.';
+		if (flag === 'rp') return 'RP - Radio Paging (EN 50067 Annex M)' + nl + 'This station carries one-way pager messages in group 7A.' + nl + 'Pagers periodically wake up, check for their capcode, then sleep again to save battery.' + nl + 'Network group: ' + (a ?? '') + '  Battery-save sync slot: ' + (b ?? '');
+		if (flag === 'epp') return 'EPP - Enhanced Radio Paging (EN 50067 Annex M)' + nl + 'Extended paging with a larger address space and more message types than basic RP.' + nl + 'OPC (operator code): ' + (a ?? '') + '  PAC (paging area): ' + (b === 0 ? (b ?? '') + ' (all areas)' : (b ?? ''));
+		return flag.toUpperCase();
+	},
+	_rdsTrafficFlagTitle(flag: string, value: boolean | null, nl: string): string {
+		if (flag === 'tp') {
+			if (value === null) return 'TP - Traffic Programme: not yet received';
+			if (value) return 'TP - Traffic Programme (ON)' + nl + 'This station regularly broadcasts road traffic bulletins.' + nl + 'Radio behaviour: stores it in the TP list; when TA fires, auto-unmutes here. If signal drops, retunes via AF list or switches to a linked EON network with TA active.';
+			return 'TP - Traffic Programme (OFF)' + nl + 'This station does not carry traffic bulletins.' + nl + 'Radio behaviour: skips it when scanning for traffic stations. Will not auto-switch here for traffic.';
+		}
+		if (value === null) return 'TA - Traffic Announcement: not yet received';
+		if (value) return 'TA - Traffic Announcement (ACTIVE)' + nl + 'A traffic bulletin is on air on THIS station right now.' + nl + 'Radio behaviour: unmutes from standby and switches HERE. Returns to previous station/volume once TA clears.';
+		return 'TA - Traffic Announcement (inactive)' + nl + 'No traffic bulletin is currently airing on this station.' + nl + 'Radio behaviour: waiting. Will unmute and switch here when TA becomes active.';
+	},
 	setRdsRegion(this: AppInstance, vfoIndex: number, region: string) {
 		const vfo = this.vfos[vfoIndex];
 		if (!vfo) return;

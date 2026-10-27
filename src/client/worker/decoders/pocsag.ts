@@ -14,7 +14,7 @@ import { pocsagDiagRelock, pocsagDiagDumpCodeword } from './pocsag-diag';
  * with measured evidence (near-zero soft value = marginal slice; cleanly-wrong
  * sign = framing/upstream). Gated on import.meta.env.DEV; zero cost in prod.
  */
-const POCSAG_DEMOD_DIAG = import.meta.env.DEV;
+const POCSAG_DEMOD_DIAG = false;
 
 /*
 Copyright (c) 2026, jLynx <https://github.com/jLynx>

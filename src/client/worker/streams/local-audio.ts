@@ -153,6 +153,8 @@ function decodeLocalPocsag(
 			}
 		}
 	} else if (!params.pocsag && state.pocsagDecoder) {
+		state.pocsagDecoder.reset();
+		if (pager.pocsagStatus) pager.pocsagStatus(v, params.freq, state.pocsagDecoder.getStatus());
 		state.pocsagDecoder = null;
 		state.pocsagStatusAt = undefined;
 	}
@@ -191,6 +193,8 @@ function decodeLocalFlex(
 			}
 		}
 	} else if (!params.flex && state.flexDecoder) {
+		state.flexDecoder.reset();
+		if (pager.flexStatus) pager.flexStatus(v, params.freq, state.flexDecoder.getStatus());
 		state.flexDecoder = null;
 		state.flexStatusAt = undefined;
 	}
@@ -221,6 +225,8 @@ function decodeLocalGsc(
 			}
 		}
 	} else if (!params.gsc && state.gscDecoder) {
+		state.gscDecoder.reset();
+		if (pager.gscStatus) pager.gscStatus(v, params.freq, state.gscDecoder.getStatus());
 		state.gscDecoder = null;
 		state.gscStatusAt = undefined;
 	}

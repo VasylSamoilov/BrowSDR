@@ -224,6 +224,7 @@ export interface ReceiverMethods {
 	_applyRdsEonNetwork(stn: AppInstance['rds']['stations'][number], eon: NonNullable<RDSMessage['eon']>): void;
 	_applyRdsTmcMessage(time: string, freq: string, vfoIndex: number, tm: NonNullable<RDSMessage['tmcMessage']>, srcGroup: string | undefined): void;
 	setRdsRegion(vfoIndex: number, region: string): void;
+	rdsFlagTitle(flag: string, value: boolean | null, a?: number, b?: number): string;
 	toggleDisplayLock(): void;
 	handleWheelZoom(e: WheelEvent, rect: DOMRect): void;
 	applyZoomToEngine(): void;
