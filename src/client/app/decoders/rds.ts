@@ -14,6 +14,8 @@ const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false,
 	piCc: 0, piCoverage: 0, piCoverageName: '', piRef: 0, piCallsign: '' as string | null,
 	// Group 0/15B MS + DI
 	ms: null as boolean | null, di: -1, diStereo: false, diArtHead: false, diCompressed: false, diDynPty: false,
+	// eRT (Enhanced RadioText)
+	eRT: '' as string,
 };
 
 export const rdsMethods = {
@@ -135,7 +137,17 @@ export const rdsMethods = {
 			}
 		}
 		if (msg.eon !== undefined) {
-			this.rds.log.push({ time, field: 'EON', value: `PI:${msg.eon.pi}${msg.eon.ps ? ' PS:' + msg.eon.ps.trim() : ''}`, freq, vfoIndex, group: msg.srcGroup });
+			const eonExtra: string[] = [];
+			if (msg.eon.mappedFreqs?.length) eonExtra.push(`MF:${msg.eon.mappedFreqs.length}`);
+			if (msg.eon.ptyOn !== undefined) eonExtra.push(`PTY:${msg.eon.ptyOn}`);
+			if (msg.eon.pinDay) eonExtra.push(`PIN:day${msg.eon.pinDay} ${String(msg.eon.pinHour).padStart(2,'0')}:${String(msg.eon.pinMinute).padStart(2,'0')}`);
+			const eonVal = `PI:${msg.eon.pi}${msg.eon.ps ? ' PS:' + msg.eon.ps.trim() : ''}${eonExtra.length ? ' ' + eonExtra.join(' ') : ''}`;
+			this.rds.log.push({ time, field: 'EON', value: eonVal, freq, vfoIndex, group: msg.srcGroup });
+		}
+		if (msg.eRT !== undefined) {
+			const stn = this.rds.stations[msg.pi ?? 0] ?? (this.rds.stations[msg.pi ?? 0] = { ...EMPTY_STATION, freq, vfoIndex } as typeof EMPTY_STATION & { freq: string; vfoIndex: number });
+			stn.eRT = msg.eRT;
+			this.rds.log.push({ time, field: 'eRT', value: msg.eRT, freq, vfoIndex, group: msg.srcGroup });
 		}
 		if (msg.paging !== undefined) {
 			const p = msg.paging;

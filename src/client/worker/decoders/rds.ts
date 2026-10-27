@@ -232,12 +232,28 @@ const ODA_AIDS: Record<number, string> = {
 
 // ── AF frequency decode (IEC 62106 §6.2.1.6) ────────────────────
 // Returns frequency in units of 100 Hz (i.e. kHz * 10) for FM, kHz for LF/MF.
+// Per EN 50067 Table 11 / Table 12:
+//   1-204   = FM (87.6+0.1*code MHz for EU; RBDS mapping for NA)
+//   224-249 = count codes (not frequencies -- handled in processAfPair)
+//   250     = LF/MF frequency follows (next code is LF/MF)
+//   1-15    = LF (153+9*(code-1) kHz, ITU region 1/3)
+//   16-135  = MF (531+9*(code-16) kHz)
 function decodeAfCode(code: number, region: string): number | null {
 	if (code >= 1 && code <= 204) {
+		// FM frequency
 		if (region === 'na') return Math.round((879 + (code - 4) * 2) * 100);
 		return Math.round((875 + code) * 100);
 	}
-	if (code >= 224 && code <= 249) return (153 + (code - 224) * 9) * 1000;
+	// LF/MF codes (used as second byte after code 250)
+	if (code >= 1 && code <= 15)  return (153 + (code - 1) * 9) * 10;   // LF: 153-279 kHz in 0.1 kHz units
+	if (code >= 16 && code <= 135) return (531 + (code - 16) * 9) * 10; // MF: 531-1602 kHz
+	return null;
+}
+
+// Decode a LF/MF code directly (code 1-135, no range check on FM)
+function decodeLfMfCode(code: number): number | null {
+	if (code >= 1 && code <= 15)   return (153 + (code - 1) * 9) * 10;
+	if (code >= 16 && code <= 135) return (531 + (code - 16) * 9) * 10;
 	return null;
 }
 
@@ -425,6 +441,16 @@ export class RDSDecoder {
 	private rtPlusToggle = -1;   // last seen toggle bit (-1=unknown)
 	private rtPlusRunning = -1;  // last seen item_running bit
 
+	// eRT -- Enhanced RadioText (ODA AID 0x6552, IEC 62106-6)
+	// Wire format: identical to Group 2A (4-bit segment, A/B flag, 4 bytes/group)
+	// but carries up to 128 bytes of raw UTF-8 text, CR-terminated.
+	private eRTGroup = -1;
+	private eRTBytes: Uint8Array = new Uint8Array(128);
+	private eRTFilled: boolean[] = new Array<boolean>(128).fill(false);
+	private eRTQuality: number[] = new Array<number>(128).fill(0);
+	private eRTAbFlag = -1;
+	private lastERT = '';
+
 	// Group 4A — CT clock
 	private lastCt = '';
 
@@ -435,7 +461,15 @@ export class RDSDecoder {
 	private ptynAbFlag = -1;
 
 	// Group 14A — EON
-	private eonMap: Map<number, { psChars: (string | null)[]; tp: boolean; ta: boolean; af: number[]; lastKey: string }> = new Map();
+	private eonMap: Map<number, {
+		psChars: (string | null)[];
+		tp: boolean; ta: boolean;
+		af: number[];
+		mappedFreqs: Array<{ tuned: number; other: number }>;
+		ptyOn: number;
+		pinDay: number; pinHour: number; pinMinute: number;
+		lastKey: string;
+	}> = new Map();
 
 	constructor(sampleRate: number, callback: (msg: RDSMessage) => void, region = 'eu') {
 		// Wrap callback to auto-inject srcGroup from the current group being decoded
@@ -788,21 +822,72 @@ export class RDSDecoder {
 		}
 	}
 
-	private processAfPair(a: number, b: number): void {
-		// AF count code (225-249 = N frequencies follow)
-		if (a >= 225 && a <= 249) {
-			const count = a - 224;
-			if (count !== this.afLastCount) { this.afLastCount = count; this.afCount = count; this.afList = []; }
-		} else {
-			const fa = decodeAfCode(a, this.region);
-			const fb = decodeAfCode(b, this.region);
-			if (fa !== null && !this.afList.includes(fa)) this.afList.push(fa);
-			if (fb !== null && !this.afList.includes(fb)) this.afList.push(fb);
-			if (this.afList.length > 0 && (this.afCount <= 0 || this.afList.length >= this.afCount))
-				this.callback({ af: [...this.afList] });
-		}
-	}
+	private afLfMfNext = false; // true when previous code was 250 (LF/MF follows)
+	private afMethodB  = false; // true when transmitting in Method B (tuning freq pairs)
 
+	private processAfPair(a: number, b: number): void {
+		// Code 205 = filler, 224 = no AF, 225-249 = N AFs follow (Method A count)
+		// Code 250 = LF/MF frequency follows (next code is LF/MF, not FM)
+		// Codes 1-204 = FM frequency; 1-135 = LF/MF (when preceded by 250)
+
+		// Handle LF/MF carry-over from previous pair
+		if (this.afLfMfNext) {
+			const fa = decodeLfMfCode(a);
+			if (fa !== null && !this.afList.includes(fa)) this.afList.push(fa);
+			this.afLfMfNext = false;
+			// b is the next normal code
+			a = b; b = 0;
+		}
+
+		// Process first code
+		if (a === 205) {
+			// Filler -- no action
+		} else if (a === 224) {
+			// No AF available
+			if (this.afList.length !== 0) { this.afList = []; this.callback({ af: [] }); }
+		} else if (a >= 225 && a <= 249) {
+			// Method A: count code -- N frequencies follow
+			const count = a - 224;
+			if (count !== this.afLastCount) { this.afLastCount = count; this.afCount = count; this.afList = []; this.afMethodB = false; }
+		} else if (a === 250) {
+			// LF/MF follows in next code
+			this.afLfMfNext = true;
+		} else if (a >= 1 && a <= 204) {
+			if (this.afMethodB) {
+				// Method B: a=tuning freq (TN), b=alternative freq (ON) -- store b only
+				const fb = decodeAfCode(b, this.region);
+				if (fb !== null && !this.afList.includes(fb)) {
+					this.afList.push(fb);
+					this.callback({ af: [...this.afList] });
+				}
+				return; // already consumed b
+			}
+			// Method A: plain frequency
+			const fa = decodeAfCode(a, this.region);
+			if (fa !== null && !this.afList.includes(fa)) this.afList.push(fa);
+		}
+
+		// Process second code (only when not already consumed above)
+		if (!this.afLfMfNext && b !== 0) {
+			if (b === 205) {
+				// Filler
+			} else if (b === 250) {
+				this.afLfMfNext = true;
+			} else if (b >= 1 && b <= 204) {
+				const fb = decodeAfCode(b, this.region);
+				if (fb !== null && !this.afList.includes(fb)) this.afList.push(fb);
+			}
+		}
+
+		// Detect Method B: if a valid FM frequency appears as first code while count=0
+		// (no preceding count code), infer Method B. Per standard: "no explicit signalling"
+		if (!this.afMethodB && a >= 1 && a <= 204 && this.afCount <= 0) {
+			this.afMethodB = true;
+		}
+
+		if (this.afList.length > 0 && (this.afCount <= 0 || this.afList.length >= this.afCount))
+			this.callback({ af: [...this.afList] });
+	}
 	// ── Group 1A: ECC, LIC, TMC flag, PIN ───────────────────────
 	// 1A paging state (suppress duplicate callbacks)
 	private rpc = -1;
@@ -978,6 +1063,7 @@ export class RDSDecoder {
 		this.odaMap.set(key, aid);
 		this.odaMsg.set(key, msg);
 		if (aid === 0x4BD7) this.rtPlusGroup = key;
+		if (aid === 0x6552) this.eRTGroup = key;  // Enhanced RadioText
 		this.callback({ odaAid: aid, odaGroup: odaGroupNum, odaVersion, odaMsg: msg });
 	}
 
@@ -1021,56 +1107,96 @@ export class RDSDecoder {
 	}
 
 	// ── Group 14A: Enhanced Other Networks (EON) ─────────────────
+	// Figure 37: variants 0-3=PS, 4=AF(A), 5-8=mapped FM, 9=mapped AM,
+	//            10-11=unallocated, 12=linkage, 13=PTY(ON)+TA, 14=PIN(ON), 15=broadcaster
 	private decodeGroup14A(blockB: number, bv: boolean[]): void {
 		if (!bv[3]) return;
 		const eonPi = this.blocks[3];
 		if (!eonPi) return;
 		if (!this.eonMap.has(eonPi))
-			this.eonMap.set(eonPi, { psChars: new Array<string | null>(8).fill(null), tp: false, ta: false, af: [], lastKey: '' });
+			this.eonMap.set(eonPi, {
+				psChars: new Array<string | null>(8).fill(null),
+				tp: false, ta: false,
+				af: [], mappedFreqs: [],
+				ptyOn: -1,
+				pinDay: 0, pinHour: 0, pinMinute: 0,
+				lastKey: '',
+			});
 		const eon = this.eonMap.get(eonPi)!;
 		const variant = blockB & 0xf;
-		const prevTp = eon.tp;
-		const prevTa = eon.ta;
 		eon.tp = ((blockB >> 4) & 1) === 1;
+
 		if (variant <= 3 && bv[2]) {
+			// Variants 0-3: PS chars (2 chars each, 8 total)
 			const c = this.blocks[2];
 			eon.psChars[variant * 2]     = rdsChar((c >> 8) & 0xff, this.region);
 			eon.psChars[variant * 2 + 1] = rdsChar(c & 0xff, this.region);
 		} else if (variant === 4 && bv[2]) {
+			// Variant 4: AF Method A -- two AF codes in block C
 			const c = this.blocks[2];
 			const fa = decodeAfCode((c >> 8) & 0xff, this.region);
 			const fb = decodeAfCode(c & 0xff, this.region);
 			if (fa !== null && !eon.af.includes(fa)) eon.af.push(fa);
 			if (fb !== null && !eon.af.includes(fb)) eon.af.push(fb);
-		} else if (variant === 13 && bv[2]) {
-			// Variant 13: PTY(ON) in block C bits [15:11], TA(ON) in block C bit 0
-			// (NOT block B -- TA is in the information block, per Figure 37)
-			eon.ta = (this.blocks[2] & 1) === 1;
-			const ptyOn = (this.blocks[2] >> 11) & 0x1f;
-			void ptyOn; // PTY of other network -- available for future use
+		} else if (variant >= 5 && variant <= 8 && bv[2]) {
+			// Variants 5-8: Mapped FM frequency pairs (Figure 37 / §3.2.1.6.6)
+			// Block C = tuning freq (TN), block C... wait:
+			// Per Figure 37: Information block = "Tuning freq. (TN) | Mapped FM freq. N (ON)"
+			// So: block C high byte = TN freq code, block C low byte = ON freq code
+			const c = this.blocks[2];
+			const tuned = decodeAfCode((c >> 8) & 0xff, this.region);
+			const other = decodeAfCode(c & 0xff, this.region);
+			if (tuned !== null && other !== null) {
+				const exists = eon.mappedFreqs.some(p => p.tuned === tuned && p.other === other);
+				if (!exists) eon.mappedFreqs.push({ tuned, other });
+			}
+		} else if (variant === 9 && bv[2]) {
+			// Variant 9: Mapped AM (LF/MF) frequency
+			// Block C high byte = tuning FM freq (TN), block C low byte = LF/MF code (ON)
+			const c = this.blocks[2];
+			const tuned = decodeAfCode((c >> 8) & 0xff, this.region);
+			const other = decodeLfMfCode(c & 0xff);
+			if (tuned !== null && other !== null) {
+				const exists = eon.mappedFreqs.some(p => p.tuned === tuned && p.other === other);
+				if (!exists) eon.mappedFreqs.push({ tuned, other });
+			}
 		} else if (variant === 12 && bv[2]) {
-			// Variant 12: Linkage information (Figure 37)
-			// block C bit 15 = LA, bit 14 = EG, bit 12 = ILS, bits [11:0] = LSN
-			const lc = this.blocks[2];
-			const lsn = lc & 0x0fff;
-			void lsn; // Linkage Set Number -- no user-visible callback needed for now
+			// Variant 12: Linkage information -- LSN and flags (§3.2.1.8.3)
+			// block C: bit 15=LA, bit 14=EG, bit 12=ILS, bits[11:0]=LSN
+			// No user-facing display currently; decoded for completeness
+			void this.blocks[2];
+		} else if (variant === 13 && bv[2]) {
+			// Variant 13: PTY(ON) + TA flag
+			// Per Figure 37: Information block has PTY(ON) and TA
+			// Block C bit 0 = TA(ON), block C bits [15:11] = PTY(ON)
+			eon.ta = (this.blocks[2] & 1) === 1;
+			eon.ptyOn = (this.blocks[2] >> 11) & 0x1f;
 		} else if (variant === 14 && bv[2]) {
-			// PIN(ON) -- scheduled broadcast time of other network
-			void this.blocks[2]; // stored, no callback needed
+			// Variant 14: PIN(ON) -- scheduled broadcast time of the other network
+			// Same encoding as Group 1B block D: day[15:11] hour[10:6] minute[5:0]
+			const pin = this.blocks[2];
+			eon.pinDay    = (pin >> 11) & 0x1f;
+			eon.pinHour   = (pin >> 6) & 0x1f;
+			eon.pinMinute = pin & 0x3f;
 		}
+		// Variants 10, 11, 15: unallocated / broadcaster -- no action
+
 		const ps = eon.psChars.every(ch => ch !== null)
 			? (eon.psChars as string[]).join('')
 			: undefined;
-		// Suppress callback if nothing changed since last emit
-		const key = `${eonPi}:${ps}:${eon.tp}:${eon.ta}:${eon.af.join(',')}`;
+		const key = `${eonPi}:${ps}:${eon.tp}:${eon.ta}:${eon.af.join(',')}:${eon.mappedFreqs.length}:${eon.ptyOn}:${eon.pinDay}`;
 		if (eon.lastKey === key) return;
 		eon.lastKey = key;
-		void prevTp; void prevTa;
 		this.callback({
 			eon: {
 				pi: eonPi.toString(16).toUpperCase().padStart(4, '0'),
 				ps, tp: eon.tp, ta: eon.ta,
-				af: eon.af.length ? [...eon.af] : undefined,
+				af:          eon.af.length          ? [...eon.af]          : undefined,
+				mappedFreqs: eon.mappedFreqs.length  ? [...eon.mappedFreqs] : undefined,
+				ptyOn:       eon.ptyOn >= 0          ? eon.ptyOn            : undefined,
+				pinDay:      eon.pinDay > 0          ? eon.pinDay           : undefined,
+				pinHour:     eon.pinDay > 0          ? eon.pinHour          : undefined,
+				pinMinute:   eon.pinDay > 0          ? eon.pinMinute        : undefined,
 			}
 		});
 	}
@@ -1082,7 +1208,14 @@ export class RDSDecoder {
 		const eonPi = this.blocks[3];
 		if (!eonPi) return;
 		if (!this.eonMap.has(eonPi))
-			this.eonMap.set(eonPi, { psChars: new Array<string | null>(8).fill(null), tp: false, ta: false, af: [], lastKey: '' });
+			this.eonMap.set(eonPi, {
+				psChars: new Array<string | null>(8).fill(null),
+				tp: false, ta: false,
+				af: [], mappedFreqs: [],
+				ptyOn: -1,
+				pinDay: 0, pinHour: 0, pinMinute: 0,
+				lastKey: '',
+			});
 		const eon = this.eonMap.get(eonPi)!;
 		eon.tp = ((blockB >> 4) & 1) === 1;
 		eon.ta = ((blockB >> 3) & 1) === 1;
@@ -1103,7 +1236,7 @@ export class RDSDecoder {
 	private pagAssembling = false;
 	private pagAddress = 0;
 	private pagAddrFmt = '';
-	private pagMsgType = '';   // 'tone'|'num10'|'num18'|'intl15'|'alpha'|'functions'
+	private pagMsgType = '';   // 'tone'|'num10'|'num18'|'intl15'|'alpha'|'vnum'|'functions'
 	private pagMsg = '';
 	private pagExpectedPsac = -1;
 
@@ -1208,30 +1341,51 @@ export class RDSDecoder {
 				this.pagExpectedPsac = 0x5; // shares data groups with num18
 				break;
 			}
-			case 0x8: { // Alpha: address group (PSAC=1000)
+			case 0x8: { // Address group (PSAC=1000) -- alpha or VNUM depending on MT in ctrl byte
+				// Control byte X1X2 is block D bits [7:0] (M.3.5.3)
+				// MT bits [7:6]: 00=alpha, 01=variable-length numeric (VNUM), 11=functions
+				const ctrl = d & 0xff;
+				const mt   = (ctrl >> 6) & 0x3;
 				this.pagAddress = addr;
 				this.pagMsg = '';
-				this.pagMsgType = 'alpha';
+				this.pagMsgType = (mt === 1) ? 'vnum' : (mt === 3) ? 'functions' : 'alpha';
 				this.pagAssembling = true;
 				this.pagExpectedPsac = 0x9;
 				break;
 			}
-			case 0xf: { // Alpha: end-of-message group (PSAC=1111)
-				if (!this.pagAssembling || this.pagMsgType !== 'alpha') break;
-				// 4 ASCII chars from blocks C and D
-				const chars = [(c>>8)&0xff, c&0xff, (d>>8)&0xff, d&0xff];
-				this.pagMsg += chars.map(b => b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '').join('');
-				this.pagMsg = this.pagMsg.trimEnd();
-				this.pagAssembling = false;
-				this.callback({ paging: { address: this.pagAddress, type: 'alpha', data: this.pagMsg, addrFmt: this.pagAddrFmt } });
+			case 0xf: { // End-of-message group (PSAC=1111) -- alpha or VNUM final segment
+				if (!this.pagAssembling) break;
+				if (this.pagMsgType === 'alpha') {
+					// 4 ASCII chars from blocks C and D
+					const chars = [(c>>8)&0xff, c&0xff, (d>>8)&0xff, d&0xff];
+					this.pagMsg += chars.map(b => b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '').join('');
+					this.pagMsg = this.pagMsg.trimEnd();
+					this.pagAssembling = false;
+					this.callback({ paging: { address: this.pagAddress, type: 'alpha', data: this.pagMsg, addrFmt: this.pagAddrFmt } });
+				} else if (this.pagMsgType === 'vnum') {
+					// VNUM: last 8 BCD nibbles
+					const nibs = [(c>>12)&0xf,(c>>8)&0xf,(c>>4)&0xf,c&0xf,(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,d&0xf];
+					this.pagMsg += this.pagBcd(nibs);
+					this.pagMsg = this.pagMsg.trim();
+					this.pagAssembling = false;
+					this.callback({ paging: { address: this.pagAddress, type: 'vnum', data: this.pagMsg, addrFmt: this.pagAddrFmt } });
+				}
 				break;
 			}
 			default: {
-				// PSAC 9-14: alpha data groups (4 ASCII chars each)
-				if (psac >= 0x9 && psac <= 0xe && this.pagAssembling && this.pagMsgType === 'alpha') {
-					const chars = [(c>>8)&0xff, c&0xff, (d>>8)&0xff, d&0xff];
-					this.pagMsg += chars.map(b => b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '').join('');
-					this.pagExpectedPsac = psac + 1;
+				// PSAC 9-14: alpha or VNUM data groups (4 bytes/8 BCD digits each)
+				if (psac >= 0x9 && psac <= 0xe && this.pagAssembling) {
+					if (this.pagMsgType === 'alpha') {
+						// Alpha: 4 ASCII chars from blocks C and D
+						const chars = [(c>>8)&0xff, c&0xff, (d>>8)&0xff, d&0xff];
+						this.pagMsg += chars.map(b => b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '').join('');
+						this.pagExpectedPsac = psac + 1;
+					} else if (this.pagMsgType === 'vnum') {
+						// VNUM: 8 BCD nibbles from blocks C and D
+						const nibs = [(c>>12)&0xf,(c>>8)&0xf,(c>>4)&0xf,c&0xf,(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,d&0xf];
+						this.pagMsg += this.pagBcd(nibs);
+						this.pagExpectedPsac = psac + 1;
+					}
 				}
 				break;
 			}
@@ -1247,6 +1401,61 @@ export class RDSDecoder {
 		// RT+ decode when this is the group registered for it
 		if (key === this.rtPlusGroup && bv[1] && bv[2] && bv[3])
 			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3]);
+		if (key === this.eRTGroup && bv[1])
+			this.decodeERT(blockB, bv);
+	}
+
+	// ── eRT: Enhanced RadioText (ODA AID 0x6552, IEC 62106-6) ────
+	// Wire format: identical to Group 2A (4-bit segment address in block B bits[3:0],
+	// A/B toggle in block B bit 4, 4 bytes per group in blocks C+D).
+	// Carries up to 128 bytes of raw UTF-8, CR (0x0D) terminated.
+	private decodeERT(blockB: number, bv: boolean[]): void {
+		const abFlag = (blockB >> 4) & 1;
+		if (abFlag !== this.eRTAbFlag) {
+			// A/B toggle: new eRT message, clear buffer
+			this.eRTAbFlag = abFlag;
+			this.eRTBytes.fill(0);
+			this.eRTFilled.fill(false);
+			this.eRTQuality.fill(0);
+			this.lastERT = '';
+		}
+		const seg = blockB & 0x0f;  // 4-bit segment (0-15), each segment = 4 bytes
+		const base = seg * 4;
+		if (base + 3 >= 128) return; // guard
+
+		const writeByte = (pos: number, val: number, q: number) => {
+			this.eRTBytes[pos] = val;
+			this.eRTFilled[pos] = true;
+			this.eRTQuality[pos] = q;
+		};
+		if (bv[2]) {
+			const c = this.blocks[2]; const q = this.blockQuality(2);
+			writeByte(base,     (c >> 8) & 0xff, q);
+			writeByte(base + 1, c & 0xff,         q);
+		}
+		if (bv[3]) {
+			const d = this.blocks[3]; const q = this.blockQuality(3);
+			writeByte(base + 2, (d >> 8) & 0xff, q);
+			writeByte(base + 3, d & 0xff,         q);
+		}
+
+		// Find end of filled contiguous region (CR-terminated or all filled)
+		let len = 0;
+		while (len < 128 && this.eRTFilled[len] && this.eRTBytes[len] !== 0x0d) len++;
+		if (len === 0) return;
+
+		// Decode bytes as UTF-8
+		let text: string;
+		try {
+			text = new TextDecoder('utf-8', { fatal: false }).decode(this.eRTBytes.slice(0, len));
+		} catch {
+			return; // incomplete UTF-8 sequence -- wait for more groups
+		}
+		text = text.trimEnd();
+		if (text.length >= 1 && text !== this.lastERT) {
+			this.lastERT = text;
+			this.callback({ eRT: text, eRTCharStatus: [...this.eRTQuality.slice(0, len)] });
+		}
 	}
 
 	// ── RT+ tag extraction (IEC 62106-6 A.5.3) ──────────────────

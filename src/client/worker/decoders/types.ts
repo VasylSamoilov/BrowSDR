@@ -136,7 +136,22 @@ export interface RDSMessage {
 	odaData?: { group: number; version: number; b: number; c: number; d: number };
 	// Group 10A (PTYN) — already declared above with ptynCharStatus
 	// Group 14A (EON)
-	eon?: { pi: string; ps?: string; tp: boolean; ta: boolean; af?: number[] };
+	eon?: {
+		pi: string;
+		ps?: string;
+		tp: boolean;
+		ta: boolean;
+		af?: number[];
+		/** Mapped frequency pairs (variants 5-9): tuned freq TN -> other network freq ON */
+		mappedFreqs?: Array<{ tuned: number; other: number }>;
+		/** PTY of other network (variant 13) */
+		ptyOn?: number;
+		/** PIN of other network day/hour/minute (variant 14) */
+		pinDay?: number; pinHour?: number; pinMinute?: number;
+	};
+	// eRT (Enhanced RadioText, ODA AID 0x6552)
+	eRT?: string;               // decoded eRT text (up to 128 chars)
+	eRTCharStatus?: number[];   // per-char quality (0=ok, 1=corrected, 2=lost)
 	// Group 3A RT+ ODA (AID 0x4BD7) and Group 11A RT+ data
 	rtPlusRunning?: boolean;    // item_running flag (true=item active)
 	rtPlusToggle?: number;      // item_toggle bit (0 or 1, change = new item)
@@ -149,5 +164,5 @@ export interface RDSMessage {
 	// Group 0A AF list
 	af?: number[];          // Alternative frequencies in kHz
 	// Group 7A Radio Paging (EN 50067 Annex M) — gated on rpcGroupDesig > 0
-	paging?: { address: number; addrFmt: string; type: 'tone' | 'num10' | 'num18' | 'alpha'; data: string };
+	paging?: { address: number; addrFmt: string; type: 'tone' | 'num10' | 'num18' | 'alpha' | 'vnum'; data: string };
 }
