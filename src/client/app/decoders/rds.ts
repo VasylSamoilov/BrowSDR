@@ -2,7 +2,7 @@ import type { RDSMessage } from '@/worker/decoders/types';
 import type { AppInstance } from '@/app/core/receiver.types';
 import type { RdsStatus } from '@/worker/decoders/types';
 
-const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false, ta: false, freq: '',
+const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: null as boolean | null, ta: null as boolean | null, freq: '',
 	ptyn: '', ct: '', ctUtcOffset: 0 as number | null, ecc: -1, countryName: '', lic: -1, languageName: '',
 	af: [] as number[], afMethod: '' as string, hasTmc: false, tmcId: -1, rtPlusItem1: '', rtPlusItem1Tag: 0, rtPlusItem1Name: '', rtPlusItem2: '', rtPlusItem2Tag: 0, rtPlusItem2Name: '', rtPlusRunning: false,
 	psCharStatus: [] as number[], rtCharStatus: [] as number[],
@@ -56,8 +56,8 @@ export const rdsMethods = {
 		pi: string;
 		pty: number;
 		ptyLabel: string;
-		tp: boolean;
-		ta: boolean;
+		tp: boolean | null;
+		ta: boolean | null;
 		freq: string;
 	}> {
 		const result: Array<AppInstance['rds']['stations'][number] & { vfoIndex: number }> = [];

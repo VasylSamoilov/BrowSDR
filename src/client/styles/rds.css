@@ -84,6 +84,12 @@
 	letter-spacing: 0.5px;
 }
 
+.rds-flag-off {
+	background: transparent;
+	color: #555;
+	border: 1px solid #333;
+}
+
 .rds-ta {
 	background: #b71c1c;
 	color: #ef9a9a;

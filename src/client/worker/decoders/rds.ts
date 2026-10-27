@@ -51,8 +51,8 @@ export class RDSDecoder {
 	// ── Decoded RDS data ──────────────────────────────────────────
 	private pi = 0;
 	private pty = -1;
-	private tp = false;
-	private ta = false;
+	private tp: boolean | null = null;
+	private ta: boolean | null = null;
 	private psChars: Array<string | null> = new Array<string | null>(8).fill(null);
 	private psStatus: number[] = new Array<number>(8).fill(0);
 	private rtChars: Array<string | null> = new Array<string | null>(64).fill(null);
@@ -727,7 +727,7 @@ export class RDSDecoder {
 	//  - sanitizeUtf8(): incomplete/invalid multibyte sequences replaced with '?'.
 	//  - Per-codepoint quality: worst quality byte in the codepoint's byte span.
 	reset(): void {
-		this.pi = 0; this.pty = -1; this.tp = false; this.ta = false;
+		this.pi = 0; this.pty = -1; this.tp = null; this.ta = null;
 		this.psChars.fill(null); this.psStatus.fill(0);
 		this.rtChars.fill(null); this.rtStatus.fill(0);
 		this.ptynChars.fill(null); this.ptynStatus.fill(0);

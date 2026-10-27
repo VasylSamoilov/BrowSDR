@@ -11,7 +11,7 @@ export type RdsStations = Record<
 	number,
 	{
 		ps: string; rt: string; pi: string; pty: number; ptyLabel: string;
-		tp: boolean; ta: boolean; freq: string;
+		tp: boolean | null; ta: boolean | null; freq: string;
 		ptyn: string; ct: string; ctUtcOffset: number | null;
 		ecc: number; countryName: string; lic: number; languageName: string;
 		af: number[]; afMethod: string; hasTmc: boolean; tmcId: number;

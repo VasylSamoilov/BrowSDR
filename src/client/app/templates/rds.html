@@ -37,18 +37,31 @@
 						<span class="rds-country" v-if="stn.countryName && stn.countryName !== '--'" :title="'ECC 0x' + stn.ecc.toString(16).toUpperCase()">{{ stn.countryName }}</span>
 						<span class="rds-pty" v-if="stn.ptyLabel" :title="'Programme Type ' + stn.pty + ': ' + stn.ptyLabel">{{ stn.ptyLabel }}</span>
 						<span class="rds-language" v-if="stn.languageName && stn.languageName !== 'Unknown'" :title="'Language Identification Code (LIC): ' + stn.lic">{{ stn.languageName }}</span>
-						<span class="rds-flags" v-if="stn.tp || stn.ta || stn.la || stn.hasTmc || stn.ewsChannel > 0 || stn.rpcGroupDesig > 0 || stn.pagingOpc > 0">
-							<span v-if="stn.tp" class="rds-flag" title="Traffic Programme: this station carries traffic announcements">TP</span>
-							<span v-if="stn.ta" class="rds-flag rds-ta" title="Traffic Announcement: traffic bulletin is currently being broadcast">TA</span>
-							<span v-if="stn.la" class="rds-flag rds-la" title="Linkage Actuator active">LA</span>
-							<span v-if="stn.hasTmc" class="rds-flag rds-tmc" :title="stn.tmcId >= 0 ? 'TMC ID: 0x' + stn.tmcId.toString(16).toUpperCase() : 'TMC'">TMC</span>
-							<span v-if="stn.ewsChannel > 0" class="rds-flag rds-ews" :title="'Emergency Warning System, channel ' + stn.ewsChannel">EWS</span>
+						<span class="rds-flags" v-if="stn.pi">
+							<span class="rds-flag" :class="stn.tp === true ? '' : 'rds-flag-off'"
+								:title="stn.tp === null
+									? 'TP – Traffic Programme: not yet received'
+									: stn.tp
+										? 'TP – Traffic Programme (ON)&#10;This station regularly broadcasts road traffic bulletins.&#10;What your radio does: stores it in the TP-station list. When TA activates, auto-unmutes and stays here. If signal is lost, uses AF list to retune to the same programme on another frequency, or switches to a linked EON network that has TA active.'
+										: 'TP – Traffic Programme (OFF)&#10;This station does not broadcast traffic bulletins.&#10;What your radio does: skips it when searching for a TP station. Will not auto-switch here for traffic. May still appear in EON data of a TP station.'">TP</span>
+							<span class="rds-flag" :class="stn.ta === true ? 'rds-ta' : 'rds-flag-off'"
+								:title="stn.ta === null
+									? 'TA – Traffic Announcement: not yet received'
+									: stn.ta
+										? 'TA – Traffic Announcement (ACTIVE)&#10;A traffic bulletin is on air on THIS station right now.&#10;What your radio does: unmutes from any muted/standby state and tunes HERE. After TA drops back to 0, returns to the previous station or volume.'
+										: 'TA – Traffic Announcement (inactive)&#10;No traffic bulletin is currently airing on this station.&#10;What your radio does: nothing yet. Waits for TA=1 to unmute and switch.'">TA</span>
+							<span v-if="stn.la" class="rds-flag rds-la"
+								title="LA – Linkage Actuator (ACTIVE)&#10;This transmitter is currently part of an extended service (e.g. a national split network merged temporarily).&#10;What your radio does: treats all transmitters in this Linkage Set as the same programme; AF retuning works across them.">LA</span>
+							<span v-if="stn.hasTmc" class="rds-flag rds-tmc"
+								:title="'TMC – Traffic Message Channel' + (stn.tmcId >= 0 ? ' (ID 0x' + stn.tmcId.toString(16).toUpperCase() + ')' : '') + '&#10;Silent digital traffic events on this subcarrier (ISO 14819 ALERT-C).&#10;What your nav does: decodes incidents, congestion and roadworks in the background without interrupting audio. Reroutes automatically.'">TMC</span>
+							<span v-if="stn.ewsChannel > 0" class="rds-flag rds-ews"
+								:title="'EWS – Emergency Warning System (channel ' + stn.ewsChannel + ')&#10;Civil emergency broadcast infrastructure.&#10;What your radio does: when an EWS message arrives, immediately unmutes, raises volume to a preset level, and displays the warning — regardless of what the listener is doing.'">EWS</span>
 							<span v-if="stn.rpcGroupDesig > 0" class="rds-flag rds-paging"
-								:title="'Radio Paging: network group ' + stn.rpcGroupDesig + ', batt-sync ' + stn.rpcBattSync">
+								:title="'RP – Radio Paging (EN 50067 Annex M)&#10;This station carries one-way pager messages in group 7A.&#10;Pagers wake from sleep at the battery-save sync interval, check for their capcode, then sleep again.&#10;Network group: ' + stn.rpcGroupDesig + '  Battery-save sync slot: ' + stn.rpcBattSync">
 								RP
 							</span>
 							<span v-if="stn.pagingOpc > 0" class="rds-flag rds-epp"
-								:title="'Enhanced Paging: OPC=' + stn.pagingOpc + ' PAC=' + stn.pagingPac + (stn.pagingPac === 0 ? ' (all areas)' : '')">
+								:title="'EPP – Enhanced Radio Paging (EN 50067 Annex M)&#10;Extended paging with larger address space and more message types than basic RP.&#10;Pagers use OPC to identify their operator and PAC to identify their paging area.&#10;OPC: ' + stn.pagingOpc + '  PAC: ' + stn.pagingPac + (stn.pagingPac === 0 ? ' (all areas)' : '')">
 								EPP
 							</span>
 						</span>
