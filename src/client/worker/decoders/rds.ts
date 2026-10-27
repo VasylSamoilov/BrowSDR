@@ -1463,9 +1463,9 @@ export class RDSDecoder {
 			this.callback({ odaData: { group: groupNum, version, b: blockB & 0x1f, c: this.blocks[2], d: this.blocks[3] } });
 		// RT+ decode when this is the group registered for it
 		if (key === this.rtPlusGroup && bv[1] && bv[2] && bv[3])
-			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3]);
+			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3], this.lastRt);
 		if (key === this.eRTPlusGroup && bv[1] && bv[2] && bv[3])
-			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3]); // same wire format as RT+
+			this.decodeRtPlus(blockB, this.blocks[2], this.blocks[3], this.eRTPlusCb === 1 ? this.lastERT : this.lastRt);
 		if (key === this.eRTGroup && bv[1])
 			this.decodeERT(blockB, bv);
 		if (key === this.tmcGroup && bv[1])
@@ -1680,7 +1680,7 @@ export class RDSDecoder {
 		}
 	}
 
-	private decodeRtPlus(b: number, c: number, d: number): void {
+	private decodeRtPlus(b: number, c: number, d: number, srcText = this.lastRt): void {
 		// Block B: bit 4 = item_toggle, bit 3 = item_running, bits [2:0] = tag1 CT high
 		const toggle  = (b >> 4) & 1;
 		const running = (b >> 3) & 1;
@@ -1704,7 +1704,6 @@ export class RDSDecoder {
 		const tag2Len   = (d & 0x1f) + 1;  // stored as length-1
 
 		// Use eRT text as source when this is an eRT+ group (cb=1 from 3A config)
-		const srcText = (this.eRTPlusCb === 1) ? this.lastERT : this.lastRt;
 		const extract = (s: number, l: number) =>
 			s < srcText.length ? srcText.slice(s, Math.min(s + l, srcText.length)).trimEnd() : '';
 
