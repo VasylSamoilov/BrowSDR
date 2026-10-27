@@ -25,7 +25,7 @@ const IDLE_CW = 0x7a89c197 >>> 0;
 export function pocsagDiagRelock(host: PocsagDiagHost, w: number, ham: number): void {
 	const trial = (host.inverted ? ~w : w) >>> 0;
 	const r = host._eccCorrect(trial);
-	const exact = (r.cw >>> 0) === SYNC_WORD && r.errors < 3;
+	const exact = r.cw >>> 0 === SYNC_WORD && r.errors < 3;
 	console.info(
 		`[POCSAG ${host.baudRate}bd RELOCK] resyncBits=${host.resyncBits} ham=${ham} ` +
 			`w=0x${w.toString(16).padStart(8, '0')} bchCorrectsToSync=${exact} (err=${r.errors})`,
@@ -44,12 +44,7 @@ export function pocsagDiagRelock(host: PocsagDiagHost, w: number, ham: number): 
  * raw so the reported value always describes the codeword bit (reportedSoft < 0
  * ⇒ bit 1), regardless of polarity.
  */
-export function pocsagDiagDumpCodeword(
-	host: PocsagDiagHost,
-	cw: number,
-	corrected: number,
-	errors: number,
-): void {
+export function pocsagDiagDumpCodeword(host: PocsagDiagHost, cw: number, corrected: number, errors: number): void {
 	const type = (corrected >>> 31) & 1;
 	let kind: string;
 	if (errors >= 3) kind = 'UNCORRECTABLE';
@@ -68,9 +63,7 @@ export function pocsagDiagDumpCodeword(
 				const ringIdx = (host.diagSoftPos + (31 - b)) % 32;
 				const soft = host.diagSoft[ringIdx] * softSign;
 				const raw = host.diagRaw[ringIdx] * softSign;
-				parts.push(
-					`bit${b}=${soft.toFixed(3)}@ph${host.diagPhase[ringIdx].toFixed(3)}raw${raw.toFixed(3)}`,
-				);
+				parts.push(`bit${b}=${soft.toFixed(3)}@ph${host.diagPhase[ringIdx].toFixed(3)}raw${raw.toFixed(3)}`);
 			}
 		}
 		detail = ` flipped[${parts.join(' ')}]`;

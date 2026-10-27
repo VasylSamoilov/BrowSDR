@@ -10,38 +10,92 @@ export interface PagerState {
 export type RdsStations = Record<
 	number,
 	{
-		ps: string; rt: string; pi: string; pty: number; ptyLabel: string;
-		tp: boolean | null; ta: boolean | null; freq: string;
-		ptyn: string; ct: string; ctUtcOffset: number | null;
-		ecc: number; countryName: string; lic: number; languageName: string;
-		af: number[]; afMethod: string; hasTmc: boolean; tmcId: number;
-		rtPlusItem1: string; rtPlusItem1Tag: number; rtPlusItem1Name: string;
-		rtPlusItem2: string; rtPlusItem2Tag: number; rtPlusItem2Name: string;
+		ps: string;
+		rt: string;
+		pi: string;
+		pty: number;
+		ptyLabel: string;
+		tp: boolean | null;
+		ta: boolean | null;
+		freq: string;
+		ptyn: string;
+		ct: string;
+		ctUtcOffset: number | null;
+		ecc: number;
+		countryName: string;
+		lic: number;
+		languageName: string;
+		af: number[];
+		afMethod: string;
+		hasTmc: boolean;
+		tmcId: number;
+		rtPlusItem1: string;
+		rtPlusItem1Tag: number;
+		rtPlusItem1Name: string;
+		rtPlusItem2: string;
+		rtPlusItem2Tag: number;
+		rtPlusItem2Name: string;
 		rtPlusRunning: boolean;
-		psCharStatus: number[]; rtCharStatus: number[];
+		psCharStatus: number[];
+		rtCharStatus: number[];
 		// Group 1A extras
-		la: boolean; opc: number; rpc: number; rpcGroupDesig: number; rpcBattSync: number;
-		pagingOpc: number; pagingPac: number; ewsChannel: number; broadcasterData: number;
-		pinDay: number; pinHour: number; pinMinute: number;
+		la: boolean;
+		opc: number;
+		rpc: number;
+		rpcGroupDesig: number;
+		rpcBattSync: number;
+		pagingOpc: number;
+		pagingPac: number;
+		ewsChannel: number;
+		broadcasterData: number;
+		pinDay: number;
+		pinHour: number;
+		pinMinute: number;
 		// PI breakdown
-		piCc: number; piCoverage: number; piCoverageName: string; piRef: number; piCallsign: string | null;
+		piCc: number;
+		piCoverage: number;
+		piCoverageName: string;
+		piRef: number;
+		piCallsign: string | null;
 		// Group 0/15B MS + DI
-		ms: boolean | null; di: number; diStereo: boolean; diArtHead: boolean; diCompressed: boolean; diDynPty: boolean;
+		ms: boolean | null;
+		di: number;
+		diStereo: boolean;
+		diArtHead: boolean;
+		diCompressed: boolean;
+		diDynPty: boolean;
 		// eRT (Enhanced RadioText)
-		eRT: string; eRTPartial: string; eRTCharStatus: number[];
+		eRT: string;
+		eRTPartial: string;
+		eRTCharStatus: number[];
 		// eRT+ (ODA AID 0x4BD8) -- independent from RT+
-		eRTPlusItem1: string; eRTPlusItem1Tag: number; eRTPlusItem1Name: string;
-		eRTPlusItem2: string; eRTPlusItem2Tag: number; eRTPlusItem2Name: string;
+		eRTPlusItem1: string;
+		eRTPlusItem1Tag: number;
+		eRTPlusItem1Name: string;
+		eRTPlusItem2: string;
+		eRTPlusItem2Tag: number;
+		eRTPlusItem2Name: string;
 		eRTPlusRunning: boolean;
 		/** Map of PI -> EON network entry for display in station card */
-		eonNetworks: Record<string, {
-			pi: string; ps?: string; tp: boolean; ta: boolean;
-			af?: number[];
-			mappedFreqs?: Array<{ tuned: number; other: number }>;
-			ptyOn?: number;
-			pinDay?: number; pinHour?: number; pinMinute?: number;
-			lsn?: number; lsIls?: boolean; lsEg?: boolean; lsLa?: boolean;
-		}>;
+		eonNetworks: Record<
+			string,
+			{
+				pi: string;
+				ps?: string;
+				tp: boolean;
+				ta: boolean;
+				af?: number[];
+				mappedFreqs?: Array<{ tuned: number; other: number }>;
+				ptyOn?: number;
+				pinDay?: number;
+				pinHour?: number;
+				pinMinute?: number;
+				lsn?: number;
+				lsIls?: boolean;
+				lsEg?: boolean;
+				lsLa?: boolean;
+			}
+		>;
 	}
 >;
 
@@ -149,6 +203,6 @@ export interface RdsLogEntry {
 	value: string;
 	freq: string;
 	vfoIndex: number;
-	group?: string;    // source group type e.g. "2A", "0A", "10A"
-	abFlag?: number;   // A/B flag value (0 or 1) when relevant
+	group?: string; // source group type e.g. "2A", "0A", "10A"
+	abFlag?: number; // A/B flag value (0 or 1) when relevant
 }

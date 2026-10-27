@@ -63,9 +63,7 @@ export interface GroupSlot {
 }
 
 /** A group-messaging event observed in a frame, folded into slot state. */
-export type GroupEvent =
-	| { kind: 'assign'; slot: number; targetFrame: number; capcode: number }
-	| { kind: 'deliver'; slot: number };
+export type GroupEvent = { kind: 'assign'; slot: number; targetFrame: number; capcode: number } | { kind: 'deliver'; slot: number };
 
 /** One in-flight fragment-reassembly slot (keyed by capcode + message number). */
 export interface ReasmSlot {

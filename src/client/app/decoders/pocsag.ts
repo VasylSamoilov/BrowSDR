@@ -33,7 +33,7 @@ export const pocsagMethods = {
 		if (!this.pocsagStatus) this.pocsagStatus = [];
 		// Carry last-known BER forward so the UI can dim it during hunt.
 		const prev = this.pocsagStatus[vfoIndex];
-		const lastBer = status.ber != null ? status.ber : (prev as (POCSAGStatus & { lastBer?: number }) | null)?.lastBer ?? null;
+		const lastBer = status.ber != null ? status.ber : ((prev as (POCSAGStatus & { lastBer?: number }) | null)?.lastBer ?? null);
 		this.pocsagStatus[vfoIndex] = Object.assign(status, { lastBer });
 	},
 	_onPocsagMessage(this: AppInstance, vfoIndex: number, freqMhz: number, msg: POCSAGMessage) {

@@ -23,7 +23,7 @@ function encGolay(data) {
 	if (syndrome >= 0x800) {
 		while (syndrome & 0xfffff800) {
 			while (!(aux & syndrome)) aux = aux >>> 1;
-			syndrome = (syndrome ^ Math.floor(aux / 0x800) * GEN_GOL) >>> 0;
+			syndrome = (syndrome ^ (Math.floor(aux / 0x800) * GEN_GOL)) >>> 0;
 		}
 	}
 	return ((data & 0xfff) | (syndrome << 12)) >>> 0;
@@ -36,7 +36,7 @@ function encBch(data) {
 	if (syndrome >= 0x100) {
 		while (syndrome & 0xff00) {
 			while (!(aux & syndrome)) aux = aux >>> 1;
-			syndrome = (syndrome ^ Math.floor(aux / 0x100) * GEN_BCH) & 0xffff;
+			syndrome = (syndrome ^ (Math.floor(aux / 0x100) * GEN_BCH)) & 0xffff;
 		}
 	}
 	return ((data & 0x7f) | (syndrome << 7)) & 0xffff;
@@ -419,8 +419,19 @@ describe('GSC/Golay GSCDecoder (streaming sync)', () => {
 		const bits = encodeVoiceBatch(0, 2, 0);
 		// Past the 2 s alert window (1200 bits), feed non-constant audio so the
 		// silence detector does not fire, then the activation stop sequence.
-		const enc = { bits, bit(x) { this.bits.push(x & 1); }, dup(cw, n) { for (let i = 0; i < n; i++) { this.bits.push((cw >> i) & 1); this.bits.push((cw >> i) & 1); } } };
-		for (let i = 0; i < 1600; i++) enc.bit((((i * 1103515245 + 12345) >>> 7) & 1)); // PRNG bits, not silence
+		const enc = {
+			bits,
+			bit(x) {
+				this.bits.push(x & 1);
+			},
+			dup(cw, n) {
+				for (let i = 0; i < n; i++) {
+					this.bits.push((cw >> i) & 1);
+					this.bits.push((cw >> i) & 1);
+				}
+			},
+		};
+		for (let i = 0; i < 1600; i++) enc.bit(((i * 1103515245 + 12345) >>> 7) & 1); // PRNG bits, not silence
 		appendActivationStop(enc);
 		for (let i = 0; i < 50; i++) enc.bit(i & 1);
 

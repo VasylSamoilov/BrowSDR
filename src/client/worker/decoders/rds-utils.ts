@@ -2,7 +2,7 @@
 import { rdsChar } from './rds-tables';
 
 export function buildPS(chars: Array<string | null>): string | null {
-	if (chars.some(c => c === null)) return null;
+	if (chars.some((c) => c === null)) return null;
 	return (chars as string[]).join('');
 }
 
@@ -33,7 +33,10 @@ export function acceptChar(
 	rtChars: Array<string | null>,
 	region: string,
 ): void {
-	if (code === 0x0d && chars === rtChars) { chars[pos] = '\r'; return; }
+	if (code === 0x0d && chars === rtChars) {
+		chars[pos] = '\r';
+		return;
+	}
 	if (code === 0x00) return;
 	if (chars[pos] !== null && quality > status[pos]) return;
 	chars[pos] = rdsChar(code, region);

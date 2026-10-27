@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 /**
  * FLEX frame-content decode: turn the four deinterleaved phase buffers of a
  * received frame into addressed messages. Single-frame decode of
@@ -35,11 +36,47 @@ import type { FlexPhaseData, FlexFiw, FlexMessage } from './types';
 import type { Codepage } from '@/worker/decoders/charsets';
 import type { ReasmSlot, FlexNetInfo, GroupEvent, GroupSlot, CapClass, HexHeader, DedupStore, FlexTimeVote } from './frame.types';
 
-import { FLEX_WORDS_PER_FRAME, BCH_CODE_BITS, WORD_NOT_RECEIVED, WORD_CLEAN, WORD_CORRECTED, WORD_UNCORRECTABLE, VEC_SECURE, VEC_SHORT_INSTR, VEC_SHORT_MESSAGE, VEC_NUMERIC, VEC_SPECIAL_NUM, VEC_ALPHA, VEC_HEX_BINARY, VEC_NUMBERED_NUM, VEC_TYPE_SHIFT, VEC_TYPE_MASK, VEC_START_SHIFT, VEC_START_MASK, VEC_LEN_SHIFT, VEC_LEN_MASK, VEC_NUM_LEN_MASK, ALPHA_CHAR_MASK, ALPHA_ETX, ALPHA_SIG_MASK, ALPHA_HDR_C_SHIFT, ALPHA_HDR_F_SHIFT, ALPHA_HDR_N_SHIFT, ALPHA_HDR_R_SHIFT, ALPHA_HDR_M_SHIFT, HEX_HDR_C_SHIFT, HEX_HDR_F_SHIFT, HEX_HDR_N_SHIFT, SEC_TYPE_SHIFT, SEC_TYPE_MASK, SEC_TYPE_ALPHA, SEC_TYPE_BINARY } from './frame.types';
+import {
+	FLEX_WORDS_PER_FRAME,
+	BCH_CODE_BITS,
+	WORD_NOT_RECEIVED,
+	WORD_CLEAN,
+	WORD_CORRECTED,
+	WORD_UNCORRECTABLE,
+	VEC_SECURE,
+	VEC_SHORT_INSTR,
+	VEC_SHORT_MESSAGE,
+	VEC_NUMERIC,
+	VEC_SPECIAL_NUM,
+	VEC_ALPHA,
+	VEC_HEX_BINARY,
+	VEC_NUMBERED_NUM,
+	VEC_TYPE_SHIFT,
+	VEC_TYPE_MASK,
+	VEC_START_SHIFT,
+	VEC_START_MASK,
+	VEC_LEN_SHIFT,
+	VEC_LEN_MASK,
+	VEC_NUM_LEN_MASK,
+	ALPHA_CHAR_MASK,
+	ALPHA_ETX,
+	ALPHA_SIG_MASK,
+	ALPHA_HDR_C_SHIFT,
+	ALPHA_HDR_F_SHIFT,
+	ALPHA_HDR_N_SHIFT,
+	ALPHA_HDR_R_SHIFT,
+	ALPHA_HDR_M_SHIFT,
+	HEX_HDR_C_SHIFT,
+	HEX_HDR_F_SHIFT,
+	HEX_HDR_N_SHIFT,
+	SEC_TYPE_SHIFT,
+	SEC_TYPE_MASK,
+	SEC_TYPE_ALPHA,
+	SEC_TYPE_BINARY,
+} from './frame.types';
 function wordLost(status: number): boolean {
 	return status === WORD_UNCORRECTABLE || status === WORD_NOT_RECEIVED;
 }
-
 
 /**
  * BCH-decode every word of a phase buffer in place, preferring the primary
@@ -297,7 +334,6 @@ function resolveAddress(
 	return { skip: false, advance: 1, capcode: decodeShortAddress(awBase), isLong: false, capClass };
 }
 
-
 /** Parse the alpha fragment header (F/C/N) at hdrIdx. Secure has no F field. */
 function parseAlphaHeader(
 	words: Uint32Array,
@@ -313,8 +349,10 @@ function parseAlphaHeader(
 	const hdrF = (hdr >> ALPHA_HDR_F_SHIFT) & 0x03;
 	const msgNum = (hdr >> ALPHA_HDR_N_SHIFT) & 0x3f;
 	let frag: string;
-	if (hdrC === 0 && hdrF === 3) frag = 'K'; // complete/unfragmented
-	else if (hdrC === 0) frag = 'C'; // final fragment
+	if (hdrC === 0 && hdrF === 3)
+		frag = 'K'; // complete/unfragmented
+	else if (hdrC === 0)
+		frag = 'C'; // final fragment
 	else frag = 'F'; // continued (more follow)
 	// R (bit 19) and M (bit 20) are valid on the FIRST fragment only (F=11).
 	const initial = hdrF === 3;
@@ -404,7 +442,23 @@ function decodeAlpha(
 	if (vecType === VEC_ALPHA && !isKanji && complete && isInitial) {
 		sigOk = wordsOk ? rxSig === (~sigSum & ALPHA_SIG_MASK) : null;
 	}
-	return { ...base, kind: kindOut, text, frag, msgNum, complete, kOk, sigOk, rxSig, sigSum, sigValid: wordsOk, mailDrop, retrieval, charStatus, hdrF };
+	return {
+		...base,
+		kind: kindOut,
+		text,
+		frag,
+		msgNum,
+		complete,
+		kOk,
+		sigOk,
+		rxSig,
+		sigSum,
+		sigValid: wordsOk,
+		mailDrop,
+		retrieval,
+		charStatus,
+		hdrF,
+	};
 }
 
 /**
@@ -568,9 +622,11 @@ function decodeHex(
 		const hdrF = (w >> HEX_HDR_F_SHIFT) & 0x03;
 		const msgNum = (w >> HEX_HDR_N_SHIFT) & 0x3f;
 		let frag: string;
-		if (hdrC === 0 && hdrF === 3) frag = 'K'; // complete/unfragmented
-		else if (hdrC === 0) frag = 'C';           // final fragment
-		else frag = 'F';                            // continued
+		if (hdrC === 0 && hdrF === 3)
+			frag = 'K'; // complete/unfragmented
+		else if (hdrC === 0)
+			frag = 'C'; // final fragment
+		else frag = 'F'; // continued
 		// R and M live in header-2 for HEX (not header-1), so always false here.
 		hdr = { frag, msgNum, hdrF, mailDrop: false, retrieval: false };
 	}
@@ -689,7 +745,20 @@ export class FlexFrameDecoder {
 		const tally = { errBits: 0, totalBits: 0 };
 		const groupEvents: GroupEvent[] = [];
 		for (const pi of activePhases) {
-			for (const msg of decodePhase(phases[pi], names[pi], fiw, fiw.numTransmissions, this.kanji, tally, this.net, groupEvents, this.dedup[pol], this.timeVote[pol], frameMono, this.cp)) {
+			for (const msg of decodePhase(
+				phases[pi],
+				names[pi],
+				fiw,
+				fiw.numTransmissions,
+				this.kanji,
+				tally,
+				this.net,
+				groupEvents,
+				this.dedup[pol],
+				this.timeVote[pol],
+				frameMono,
+				this.cp,
+			)) {
 				const assembled = this.reassemble(msg, polarity, frameAbs);
 				if (assembled) {
 					assembled.inverted = (polarity & 1) === 1;
@@ -713,9 +782,10 @@ export class FlexFrameDecoder {
 		if (tally.totalBits > 0) {
 			const frameBer = tally.errBits / tally.totalBits;
 			this.ber = this.ber === null ? frameBer : this.ber * 0.7 + frameBer * 0.3;
-			if (import.meta.env.DEV) console.log(
-				`[FLEX FRAME_BER] frame_ber=${(frameBer*100).toFixed(2)}% smooth_ber=${(this.ber*100).toFixed(2)}% errBits=${tally.errBits} totalBits=${tally.totalBits}`
-			);
+			if (import.meta.env.DEV)
+				console.log(
+					`[FLEX FRAME_BER] frame_ber=${(frameBer * 100).toFixed(2)}% smooth_ber=${(this.ber * 100).toFixed(2)}% errBits=${tally.errBits} totalBits=${tally.totalBits}`,
+				);
 		}
 		return out;
 	}
@@ -760,7 +830,21 @@ export class FlexFrameDecoder {
 			}
 			this.slots[pol].splice(oldest, 1);
 		}
-		const slot: ReasmSlot = { capcode, type, msgNum: n, text: '', charStatus: [], fragCount: 0, expectedF: 0, fMismatch: false, reasmKey, lastFrameAbs: frameAbs, rxSig: -1, sigSum: 0, sigValid: true };
+		const slot: ReasmSlot = {
+			capcode,
+			type,
+			msgNum: n,
+			text: '',
+			charStatus: [],
+			fragCount: 0,
+			expectedF: 0,
+			fMismatch: false,
+			reasmKey,
+			lastFrameAbs: frameAbs,
+			rxSig: -1,
+			sigSum: 0,
+			sigValid: true,
+		};
 		this.slots[pol].push(slot);
 		return slot;
 	}

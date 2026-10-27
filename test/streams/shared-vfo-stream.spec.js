@@ -65,8 +65,9 @@ async function createStream(rdsCallback = null, dsdStatusCallback = null, rtl433
 		spectrumCallback,
 		null,
 		null,
-		{ pocsag: null, pocsagStatus: null, gsc: null, gscStatus: null },
+		{ pocsag: null, pocsagStatus: null, gsc: null, gscStatus: null, flex: null, flexStatus: null },
 		rdsCallback,
+		null,
 		dsdStatusCallback,
 		rtl433Callback,
 	);

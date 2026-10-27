@@ -4,8 +4,17 @@ import type { RadiosondeMessage } from '@/worker/decoders/radiosonde/types';
 import type { AcarsMessage } from '@/worker/decoders/acars/types';
 import type { AdsbMessage } from '@/worker/decoders/adsb/types';
 import type { DSDStatus } from '@/worker/decoders/dsd/types';
-import type { Rtl433Message, POCSAGMessage, POCSAGStatus, RDSMessage, GSCMessage, GSCStatus, FlexMessage, FlexStatus } from '@/worker/decoders/types';
-import type { RdsStatus } from '@/worker/decoders/rds';
+import type {
+	Rtl433Message,
+	POCSAGMessage,
+	POCSAGStatus,
+	RDSMessage,
+	GSCMessage,
+	GSCStatus,
+	FlexMessage,
+	FlexStatus,
+	RdsStatus,
+} from '@/worker/decoders/types';
 import type { PerfReport } from './types';
 
 export type SamplesCallback = (samples: Float32Array) => void;

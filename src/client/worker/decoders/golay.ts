@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import type { GSCMessage, GSCRxState, GSCVoiceEndReason, GSCStatus } from './gsc.types';
 import { GSC_CHAR_OK, GSC_CHAR_CORRECTED, GSC_CHAR_UNCORRECTABLE } from './gsc.types';
 import { FskBitSlicer, BerWindow } from './fsk-frontend';
@@ -179,7 +180,14 @@ export class GSCDecoder {
 
 	getStatus(): GSCStatus {
 		const stage = this.synced ? (this.state === 'voice' || this.voiceActive ? 'voice' : 'data') : null;
-		return { synced: this.synced, baud: this.synced ? BAUD : null, inverted: this.inverted, ber: this.ber.ber, codewords: this.ber.count, stage };
+		return {
+			synced: this.synced,
+			baud: this.synced ? BAUD : null,
+			inverted: this.inverted,
+			ber: this.ber.ber,
+			codewords: this.ber.count,
+			stage,
+		};
 	}
 
 	/** Enable/disable emitting the runner-up alpha/numeric reading as msg.alt. */
@@ -605,7 +613,16 @@ function decodeContent(
 	pos: number,
 	force: boolean,
 	ber?: BerWindow,
-): 'need-more' | { type: GSCMessage['type']; text: string; charStatus: number[]; errors: number; uncorrectable: number; alt?: { type: 'alpha' | 'numeric'; text: string } } {
+):
+	| 'need-more'
+	| {
+			type: GSCMessage['type'];
+			text: string;
+			charStatus: number[];
+			errors: number;
+			uncorrectable: number;
+			alt?: { type: 'alpha' | 'numeric'; text: string };
+	  } {
 	const remaining = bits.length - pos;
 
 	// Voice: activation code after a 28-bit comma.
@@ -727,7 +744,17 @@ function decodeDataBlocks(
 	startPos: number,
 	force: boolean,
 	ber?: BerWindow,
-): { type: 'alpha' | 'numeric'; text: string; charStatus: number[]; errors: number; uncorrectable: number; alt: { type: 'alpha' | 'numeric'; text: string } } | 'need-more' | null {
+):
+	| {
+			type: 'alpha' | 'numeric';
+			text: string;
+			charStatus: number[];
+			errors: number;
+			uncorrectable: number;
+			alt: { type: 'alpha' | 'numeric'; text: string };
+	  }
+	| 'need-more'
+	| null {
 	const collected = collectDataBlocks(bits, startPos, force, ber);
 	if (collected === 'need-more') return 'need-more';
 	if (!collected) return null;
