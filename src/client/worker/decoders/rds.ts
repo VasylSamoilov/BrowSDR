@@ -132,11 +132,6 @@ export class RDSDecoder {
 			const labels = region === 'na' ? PTY_LABELS_NA : PTY_LABELS_EU;
 			this.callback({ pty: this.pty, ptyLabel: labels[this.pty] || '' });
 		}
-		// LIC is EU-only; clear it when switching to NA to remove spurious language display
-		if (region === 'na' && this.lic >= 0) {
-			this.lic = -1;
-			this.callback({ lic: -1, languageName: '' });
-		}
 	}
 
 	process(samples: Float32Array): void { this.demod.process(samples); }
@@ -412,13 +407,10 @@ export class RDSDecoder {
 				break;
 			}
 			case 3: {
-				if (this.region === 'na') {
-					// RBDS (NRSC-4-B Table 4.2.1b): variant 3 = broadcaster short name; not decoded
-				} else {
-					// RDS (IEC 62106 Table 3): variant 3 = Language Identification Code
-					const lic = payload & 0xff;
-					if (lic !== this.lic) { this.lic = lic; this.callback({ lic, languageName: LIC_NAMES[lic] || 'Unknown' }); }
-				}
+				// RDS/RBDS: variant 3 = Language Identification Code (IEC 62106 §3.2.1.3)
+				// NRSC-4-B does not redefine group 1A, so LIC is valid in both regions.
+				const lic = payload & 0xff;
+				if (lic !== this.lic) { this.lic = lic; this.callback({ lic, languageName: LIC_NAMES[lic] || 'Unknown' }); }
 				break;
 			}
 		}
