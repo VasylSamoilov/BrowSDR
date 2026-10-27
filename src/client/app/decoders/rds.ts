@@ -4,7 +4,7 @@ import type { RdsStatus } from '@/worker/decoders/rds';
 
 const EMPTY_STATION = { ps: '', rt: '', pi: '', pty: 0, ptyLabel: '', tp: false, ta: false, freq: '',
 	ptyn: '', ct: '', ctUtcOffset: 0 as number | null, ecc: -1, countryName: '', lic: -1, languageName: '',
-	af: [] as number[], hasTmc: false, tmcId: -1, rtPlusItem1: '', rtPlusItem1Tag: 0, rtPlusItem1Name: '', rtPlusItem2: '', rtPlusItem2Tag: 0, rtPlusItem2Name: '', rtPlusRunning: false,
+	af: [] as number[], afMethod: '' as string, hasTmc: false, tmcId: -1, rtPlusItem1: '', rtPlusItem1Tag: 0, rtPlusItem1Name: '', rtPlusItem2: '', rtPlusItem2Tag: 0, rtPlusItem2Name: '', rtPlusRunning: false,
 	psCharStatus: [] as number[], rtCharStatus: [] as number[],
 	// Group 1A extras
 	la: false, opc: 0, rpc: 0, rpcGroupDesig: 0, rpcBattSync: 0,
@@ -100,7 +100,7 @@ export const rdsMethods = {
 		if (msg.ta !== undefined) stn.ta = msg.ta;
 		if (msg.ecc !== undefined) { stn.ecc = msg.ecc; stn.countryName = msg.countryName || ''; if (msg.opc !== undefined) stn.opc = msg.opc; }
 		if (msg.lic !== undefined) { stn.lic = msg.lic; stn.languageName = msg.languageName || ''; }
-		if (msg.af !== undefined) stn.af = msg.af;
+		if (msg.af !== undefined) { stn.af = msg.af; if (msg.afMethod) stn.afMethod = msg.afMethod; }
 		if (msg.hasTmc) { stn.hasTmc = true; if (msg.tmcId !== undefined) stn.tmcId = msg.tmcId; }
 		if (msg.la !== undefined) stn.la = msg.la;
 		if (msg.rpc !== undefined) { stn.rpc = msg.rpc; stn.rpcGroupDesig = msg.rpcGroupDesig ?? 0; stn.rpcBattSync = msg.rpcBattSync ?? 0; }

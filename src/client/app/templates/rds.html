@@ -95,8 +95,9 @@
 					<div class="rds-ct" v-if="stn.ct" style="font-size:11px;opacity:0.6;" :title="'Clock Time (Group 4A): UTC time broadcast by station' + (stn.ctUtcOffset != null ? ', local offset ' + (stn.ctUtcOffset >= 0 ? '+' : '') + (stn.ctUtcOffset / 2).toFixed(1) + 'h' : '')">
 						🕐 {{ stn.ct }}<template v-if="stn.ctUtcOffset != null"> UTC{{ stn.ctUtcOffset >= 0 ? '+' : '' }}{{ (stn.ctUtcOffset / 2).toFixed(1) }}h</template>
 					</div>
-					<div class="rds-af" v-if="stn.af && stn.af.length" style="font-size:10px;opacity:0.55;" title="Alternative frequencies">
-						AF: {{ stn.af.map(f => (f/1000).toFixed(1)).join(' · ') }}
+					<div class="rds-af" v-if="stn.af && stn.af.length" style="font-size:10px;opacity:0.55;"
+						:title="'Alternative Frequencies, Method ' + (stn.afMethod || 'A') + (stn.afMethod === 'B' ? ' (tuning-paired list, larger networks)' : ' (up to 25 frequencies)') + '\n' + stn.af.map(f => (f/1000).toFixed(1) + ' MHz').join(', ')">
+						AF<span v-if="stn.afMethod" style="opacity:0.6;font-size:9px;"> ({{ stn.afMethod }})</span>: {{ stn.af.map(f => (f/1000).toFixed(1)).join(' · ') }}
 					</div>
 					<!-- EON cross-referenced networks -->
 					<div v-if="Object.keys(stn.eonNetworks).length" style="font-size:10px;opacity:0.6;margin-top:3px;">

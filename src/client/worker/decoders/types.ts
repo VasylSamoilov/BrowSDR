@@ -183,6 +183,7 @@ export interface RDSMessage {
 	eRTPlusItem2Name?: string;
 	// Group 0A AF list
 	af?: number[];          // Alternative frequencies in kHz
+	afMethod?: 'A' | 'B';  // Which AF method was used (A=list, B=tuning pairs)
 	// Group 7A Radio Paging (EN 50067 Annex M) — gated on rpcGroupDesig > 0
 	paging?: { address: number; addrFmt: string; type: 'tone' | 'num10' | 'num18' | 'alpha' | 'vnum' | 'intl15' | 'functions'; data: string };
 }

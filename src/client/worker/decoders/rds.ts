@@ -874,7 +874,7 @@ export class RDSDecoder {
 				const fb = decodeAfCode(b, this.region);
 				if (fb !== null && !this.afList.includes(fb)) {
 					this.afList.push(fb);
-					this.callback({ af: [...this.afList] });
+					this.callback({ af: [...this.afList], afMethod: 'B' });
 				}
 				return; // already consumed b
 			}
@@ -902,7 +902,7 @@ export class RDSDecoder {
 		}
 
 		if (this.afList.length > 0 && (this.afCount <= 0 || this.afList.length >= this.afCount))
-			this.callback({ af: [...this.afList] });
+			this.callback({ af: [...this.afList], afMethod: this.afMethodB ? 'B' : 'A' });
 	}
 	// ── Group 1A: ECC, LIC, TMC flag, PIN ───────────────────────
 	// 1A paging state (suppress duplicate callbacks)
