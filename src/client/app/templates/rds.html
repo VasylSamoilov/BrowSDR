@@ -54,6 +54,9 @@
 						:title="'Programme Item Number: scheduled broadcast time'">
 						📅 PIN: day {{ stn.pinDay }} {{ String(stn.pinHour).padStart(2,'0') }}:{{ String(stn.pinMinute).padStart(2,'0') }}
 					</div>
+					<div v-if="stn.broadcasterData >= 0" style="font-size:10px;opacity:0.45;" :title="'Group 1A variant 6: broadcaster-defined 12-bit data'">
+						IH: 0x{{ stn.broadcasterData.toString(16).toUpperCase().padStart(3, '0') }}
+					</div>
 					</div>
 					<div class="rds-di" v-if="stn.ms !== null || stn.di >= 0" style="font-size:10px;opacity:0.55;margin-top:1px;">
 						<span v-if="stn.ms !== null" title="M/S bit: Music/Speech decoder switch">{{ stn.ms ? '🎵 Music' : '🎤 Speech' }}</span>

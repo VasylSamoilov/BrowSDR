@@ -1239,6 +1239,7 @@ export class RDSDecoder {
 	private pagMsgType = '';   // 'tone'|'num10'|'num18'|'intl15'|'alpha'|'vnum'|'functions'
 	private pagMsg = '';
 	private pagExpectedPsac = -1;
+	private pagCountryCode = ''; // X1X2X3 for INTL15 and functions messages
 
 	/** Unpack 6-digit pager address from block C + block D high byte */
 	private pagUnpackAddr(c: number, dHi: number): number {
@@ -1250,6 +1251,11 @@ export class RDSDecoder {
 	/** Decode BCD nibbles to digit string (0xA = space) */
 	private pagBcd(nibbles: number[]): string {
 		return nibbles.map(n => n <= 9 ? String(n) : ' ').join('');
+	}
+
+	/** Decode hex nibbles to string (0x0-0x9='0'-'9', 0xA-0xF='A'-'F') per Annex M */
+	private pagHex(nibbles: number[]): string {
+		return nibbles.map(n => n.toString(16).toUpperCase()).join('');
 	}
 
 	private decodeGroup7A(blockB: number, bv: boolean[]): void {
@@ -1284,11 +1290,14 @@ export class RDSDecoder {
 				this.callback({ paging: { address: addr, type: 'tone', data: '', addrFmt: this.pagAddrFmt } });
 				break;
 			}
-			case 0x1: { // Functions address group (PSAC=0001) -- log, skip data
+			case 0x1: { // Functions address group (PSAC=0001) per Table M.6 / Figure M.7
+				// Group 1: addr Y1Y2Z1Z2Z3Z4 in C+D[15:8], country digits X1X2 in D[7:0]
 				this.pagAddress = addr;
+				this.pagCountryCode = this.pagBcd([(d >> 4) & 0xf, d & 0xf]); // X1X2
+				this.pagMsg = '';
 				this.pagMsgType = 'functions';
 				this.pagAssembling = true;
-				this.pagExpectedPsac = 0x2; // functions data uses PSAC=2/3
+				this.pagExpectedPsac = 0x3; // functions data group is PSAC=0011
 				break;
 			}
 			case 0x2: { // 10-digit numeric: address group (PSAC=0010)
@@ -1300,12 +1309,30 @@ export class RDSDecoder {
 				this.pagExpectedPsac = 0x3;
 				break;
 			}
-			case 0x3: { // 10-digit numeric: data group (PSAC=0011)
-				if (!this.pagAssembling || this.pagMsgType !== 'num10') break;
-				const nibs = [(c>>12)&0xf,(c>>8)&0xf,(c>>4)&0xf,c&0xf,(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,d&0xf];
-				this.pagMsg += this.pagBcd(nibs);
-				this.pagAssembling = false;
-				this.callback({ paging: { address: this.pagAddress, type: 'num10', data: this.pagMsg.trim(), addrFmt: this.pagAddrFmt } });
+			case 0x3: { // Data group for num10 (PSAC=0011) OR functions (PSAC=0011)
+				if (!this.pagAssembling) break;
+				if (this.pagMsgType === 'num10') {
+					// 10-digit numeric data: 8 BCD nibbles from C and D
+					const nibs = [(c>>12)&0xf,(c>>8)&0xf,(c>>4)&0xf,c&0xf,(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,d&0xf];
+					this.pagMsg += this.pagBcd(nibs);
+					this.pagAssembling = false;
+					this.callback({ paging: { address: this.pagAddress, type: 'num10', data: this.pagMsg.trim(), addrFmt: this.pagAddrFmt } });
+				} else if (this.pagMsgType === 'functions') {
+					// Functions message: X3 + F1-F7 (8 hex nibbles in C+D per Table M.6)
+					// C[15:12]=X3, C[11:0]+D = F1-F7 packed as nibbles
+					const x3 = this.pagHex([(c >> 12) & 0xf]);
+					const fNibs = [(c>>8)&0xf,(c>>4)&0xf,c&0xf,(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,(d>>4)&0xf,d&0xf];
+					// F1-F7 = 7 hex nibbles from C[11:0](3 nibs) + D[15:0](4 nibs)
+					const f1_3 = [(c>>8)&0xf,(c>>4)&0xf,c&0xf];
+					const f4_7 = [(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,d&0xf];
+					this.pagMsg = x3 + this.pagHex([...f1_3, ...f4_7]);
+					void fNibs;
+					this.pagCountryCode += x3;
+					this.pagAssembling = false;
+					// data = "CC:X1X2X3 F:F1F2F3F4F5F6F7"
+					const fnData = `CC:${this.pagCountryCode} F:${this.pagHex([...f1_3, ...f4_7])}`;
+					this.callback({ paging: { address: this.pagAddress, type: 'functions', data: fnData, addrFmt: this.pagAddrFmt } });
+				}
 				break;
 			}
 			case 0x4: { // 18-digit numeric: address group (PSAC=0100)
@@ -1318,27 +1345,50 @@ export class RDSDecoder {
 				break;
 			}
 			case 0x5:
-			case 0x6: { // 18-digit numeric: data groups (PSAC=0101/0110)
-				if (!this.pagAssembling || this.pagMsgType !== 'num18') break;
+			case 0x6: { // Data groups for num18 (PSAC=0101/0110) OR intl15 (PSAC=0101/0110)
+				if (!this.pagAssembling) break;
 				if (psac !== this.pagExpectedPsac) break;
-				const nibs = [(c>>12)&0xf,(c>>8)&0xf,(c>>4)&0xf,c&0xf,(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,d&0xf];
-				this.pagMsg += this.pagBcd(nibs);
-				if (psac === 0x6) {
-					this.pagAssembling = false;
-					this.callback({ paging: { address: this.pagAddress, type: 'num18', data: this.pagMsg.trim(), addrFmt: this.pagAddrFmt } });
-				} else {
-					this.pagExpectedPsac = 0x6;
+				if (this.pagMsgType === 'num18') {
+					// 18-digit numeric data: 8 BCD nibbles from C and D
+					const nibs = [(c>>12)&0xf,(c>>8)&0xf,(c>>4)&0xf,c&0xf,(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,d&0xf];
+					this.pagMsg += this.pagBcd(nibs);
+					if (psac === 0x6) {
+						this.pagAssembling = false;
+						this.callback({ paging: { address: this.pagAddress, type: 'num18', data: this.pagMsg.trim(), addrFmt: this.pagAddrFmt } });
+					} else {
+						this.pagExpectedPsac = 0x6;
+					}
+				} else if (this.pagMsgType === 'intl15') {
+					// INTL15 Table M.5:
+					// PSAC=0101 (group 2): C[15:12]=X3, C[11:0]+D = A1-A7 (7 BCD digits)
+					// PSAC=0110 (group 3): C+D = A8-A15 (8 BCD digits)
+					if (psac === 0x5) {
+						const x3 = this.pagBcd([(c >> 12) & 0xf]);
+						this.pagCountryCode += x3;
+						// A1-A7: C[11:0] = 3 nibbles, D[15:0] = 4 nibbles
+						const a1_3 = [(c>>8)&0xf,(c>>4)&0xf,c&0xf];
+						const a4_7 = [(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,d&0xf];
+						this.pagMsg = this.pagBcd([...a1_3, ...a4_7]);
+						this.pagExpectedPsac = 0x6;
+					} else { // psac === 0x6
+						// A8-A15: 8 BCD nibbles from C+D
+						const nibs = [(c>>12)&0xf,(c>>8)&0xf,(c>>4)&0xf,c&0xf,(d>>12)&0xf,(d>>8)&0xf,(d>>4)&0xf,d&0xf];
+						this.pagMsg += this.pagBcd(nibs);
+						this.pagAssembling = false;
+						const intlData = `CC:${this.pagCountryCode} ${this.pagMsg.trim()}`;
+						this.callback({ paging: { address: this.pagAddress, type: 'intl15', data: intlData, addrFmt: this.pagAddrFmt } });
+					}
 				}
 				break;
 			}
-			case 0x7: { // INTL15: 15-digit international numeric address group (PSAC=0111)
-				// Address + first 2 digits of message in d[7:0]
-				const n2 = [((d >> 4) & 0xf), d & 0xf];
+			case 0x7: { // INTL15: international 15-digit address group (PSAC=0111) per Table M.5/Fig M.6
+				// Group 1: addr Y1Y2Z1Z2Z3Z4 in C+D[15:8], country digits X1X2 in D[7:0]
 				this.pagAddress = addr;
-				this.pagMsg = this.pagBcd(n2);
+				this.pagCountryCode = this.pagBcd([(d >> 4) & 0xf, d & 0xf]); // X1X2
+				this.pagMsg = '';
 				this.pagMsgType = 'intl15';
 				this.pagAssembling = true;
-				this.pagExpectedPsac = 0x5; // shares data groups with num18
+				this.pagExpectedPsac = 0x5; // data group 2 is PSAC=0101
 				break;
 			}
 			case 0x8: { // Address group (PSAC=1000) -- alpha or VNUM depending on MT in ctrl byte

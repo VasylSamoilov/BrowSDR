@@ -165,5 +165,5 @@ export interface RDSMessage {
 	// Group 0A AF list
 	af?: number[];          // Alternative frequencies in kHz
 	// Group 7A Radio Paging (EN 50067 Annex M) — gated on rpcGroupDesig > 0
-	paging?: { address: number; addrFmt: string; type: 'tone' | 'num10' | 'num18' | 'alpha' | 'vnum'; data: string };
+	paging?: { address: number; addrFmt: string; type: 'tone' | 'num10' | 'num18' | 'alpha' | 'vnum' | 'intl15' | 'functions'; data: string };
 }
