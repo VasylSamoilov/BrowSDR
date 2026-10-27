@@ -139,7 +139,7 @@ export class RDSDemodulator {
 					if (nextParity !== this.pairParity) { this.pairParity = nextParity; this.prevSymI = 0; this.prevSymQ = 0; }
 					this.pairEnergy.fill(0);
 				}
-				if (parity === this.pairParity) { this._processBit(filtI * this.prevSymI + filtQ * this.prevSymQ < 0 ? 1 : 0); this.prevSymI = symI; this.prevSymQ = symQ; }
+				if (parity === this.pairParity) { this._processBit(symI * this.prevSymI + symQ * this.prevSymQ < 0 ? 1 : 0); this.prevSymI = symI; this.prevSymQ = symQ; }
 				this.prevHalfI = filtI; this.prevHalfQ = filtQ; this.symbolIndex++;
 			}
 			if (this.clockPhase >= symbolPeriod) this.clockPhase -= symbolPeriod;
